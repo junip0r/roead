@@ -61,6 +61,7 @@ aamp = [
     "num-traits",
     "once_cell",
     "parking_lot",
+    "types",
     "std",
 ]
 byml = ["binrw", "almost", "num-traits", "std"]
@@ -73,6 +74,7 @@ sarc = [
     "no_std_io",
     "byte",
 ]
+types = ["alloc"]
 yaz0 = ["alloc", "cxx", "cxx-build", "byte"]
 yaml = ["ryml", "lexical", "base64", "std"]
 with-serde = ["serde", "smartstring/serde", "indexmap/serde", "std"]

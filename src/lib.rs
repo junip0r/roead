@@ -63,6 +63,7 @@ pub mod aamp;
 pub mod byml;
 #[cfg(feature = "sarc")]
 pub mod sarc;
+#[cfg(feature = "types")]
 pub mod types;
 mod util;
 #[cfg(feature = "yaml")]
@@ -84,6 +85,7 @@ pub enum Error {
     InsufficientData(usize, usize),
     #[error("{0}")]
     InvalidData(&'static str),
+    #[cfg(feature = "alloc")]
     #[error("{0}")]
     InvalidDataD(alloc::string::String),
     #[error("Found {0}, expected {1}")]
@@ -111,6 +113,7 @@ pub enum Error {
     #[cfg(feature = "yaz0")]
     #[error(transparent)]
     Yaz0Error(#[from] cxx::Exception),
+    #[cfg(feature = "alloc")]
     #[error("{0}")]
     Any(alloc::string::String),
 }
@@ -122,7 +125,7 @@ impl From<byte::Error> for Error {
     }
 }
 
-#[cfg(feature = "byte")]
+#[cfg(all(feature = "byte", feature = "alloc"))]
 fn display_byte_error(error: &byte::Error) -> alloc::string::String {
     #[cfg(not(feature = "std"))]
     use alloc::borrow::ToOwned;
@@ -131,6 +134,15 @@ fn display_byte_error(error: &byte::Error) -> alloc::string::String {
         byte::Error::Incomplete => "Insufficient data".to_owned(),
         byte::Error::BadOffset(off) => alloc::format!("Invalid offset: {off}"),
         byte::Error::BadInput { err } => (*err).to_owned(),
+    }
+}
+
+#[cfg(all(feature = "byte", not(feature = "alloc")))]
+fn display_byte_error(error: &byte::Error) -> &str {
+    match error {
+        byte::Error::Incomplete => "Insufficient data",
+        byte::Error::BadOffset(_) => "Invalid offset",
+        byte::Error::BadInput { err } => err,
     }
 }
 
