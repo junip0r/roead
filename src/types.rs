@@ -1,6 +1,7 @@
 #![allow(clippy::derived_hash_with_manual_eq)]
 //! Miscellaneous needful oead types.
-// use decorum::f32;
+use alloc::{borrow::ToOwned, string::String};
+
 #[cfg(feature = "with-serde")]
 use serde::{Deserialize, Serialize};
 
@@ -9,14 +10,14 @@ use serde::{Deserialize, Serialize};
 /// In sead, this is actually a derived class of `sead::BufferedSafeString`
 /// which is in turn derived from `sead::SafeString`. Since the latter is
 /// essentially a `{vptr, const char* cstr}` pair and the former is a
-/// `std::string_view`, we will not bother implementing those base classes.
+/// `core::string_view`, we will not bother implementing those base classes.
 ///
 /// **Note:** Any string that is too long to be stored in a `FixedSafeString`
 /// is truncated.
 #[cfg_attr(
     feature = "with-serde",
     derive(Serialize, Deserialize),
-    serde(from = "std::string::String", into = "std::string::String")
+    serde(from = "core::string::String", into = "core::string::String")
 )]
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd)]
 pub struct FixedSafeString<const N: usize> {
@@ -33,8 +34,8 @@ impl<const N: usize> Default for FixedSafeString<N> {
     }
 }
 
-impl<const N: usize> std::fmt::Debug for FixedSafeString<N> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<const N: usize> core::fmt::Debug for FixedSafeString<N> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.as_ref().fmt(f)
     }
 }
@@ -46,7 +47,7 @@ impl<const N: usize> FixedSafeString<N> {
     }
 }
 
-impl<const N: usize> std::ops::Deref for FixedSafeString<N> {
+impl<const N: usize> core::ops::Deref for FixedSafeString<N> {
     type Target = str;
 
     fn deref(&self) -> &str {
@@ -54,7 +55,7 @@ impl<const N: usize> std::ops::Deref for FixedSafeString<N> {
     }
 }
 
-impl<const N: usize> std::ops::DerefMut for FixedSafeString<N> {
+impl<const N: usize> core::ops::DerefMut for FixedSafeString<N> {
     fn deref_mut(&mut self) -> &mut str {
         self.as_mut()
     }
@@ -62,20 +63,20 @@ impl<const N: usize> std::ops::DerefMut for FixedSafeString<N> {
 
 impl<const N: usize> AsRef<str> for FixedSafeString<N> {
     fn as_ref(&self) -> &str {
-        unsafe { std::str::from_utf8_unchecked(&self.data[..self.len]) }
+        unsafe { core::str::from_utf8_unchecked(&self.data[..self.len]) }
     }
 }
 
 impl<const N: usize> AsMut<str> for FixedSafeString<N> {
     fn as_mut(&mut self) -> &mut str {
-        unsafe { std::str::from_utf8_unchecked_mut(&mut self.data[..self.len]) }
+        unsafe { core::str::from_utf8_unchecked_mut(&mut self.data[..self.len]) }
     }
 }
 
 impl<const N: usize> From<&str> for FixedSafeString<N> {
     fn from(s: &str) -> Self {
         let mut data = [0; N];
-        let len = std::cmp::min(N, s.len());
+        let len = core::cmp::min(N, s.len());
         data[..len].copy_from_slice(&s.as_bytes()[..len]);
         Self { data, len }
     }
@@ -93,7 +94,7 @@ impl<const N: usize> From<String> for FixedSafeString<N> {
     }
 }
 
-impl<const N: usize> std::borrow::Borrow<str> for FixedSafeString<N> {
+impl<const N: usize> core::borrow::Borrow<str> for FixedSafeString<N> {
     fn borrow(&self) -> &str {
         self.as_ref()
     }
@@ -111,8 +112,8 @@ impl<const N: usize> From<FixedSafeString<N>> for smartstring::alias::String {
     }
 }
 
-impl<const N: usize> std::fmt::Display for FixedSafeString<N> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<const N: usize> core::fmt::Display for FixedSafeString<N> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.as_ref().fmt(f)
     }
 }
@@ -154,8 +155,8 @@ impl PartialEq for Vector2f {
     }
 }
 
-impl std::hash::Hash for Vector2f {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl core::hash::Hash for Vector2f {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         (self.x.to_bits()).hash(state);
         (self.y.to_bits()).hash(state);
     }
@@ -180,8 +181,8 @@ impl PartialEq for Vector3f {
     }
 }
 
-impl std::hash::Hash for Vector3f {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl core::hash::Hash for Vector3f {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         b"f".hash(state);
         (self.x.to_bits()).hash(state);
         b"f".hash(state);
@@ -212,8 +213,8 @@ impl PartialEq for Vector4f {
     }
 }
 
-impl std::hash::Hash for Vector4f {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl core::hash::Hash for Vector4f {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         b"f".hash(state);
         (self.x.to_bits()).hash(state);
         b"f".hash(state);
@@ -246,8 +247,8 @@ impl PartialEq for Quat {
     }
 }
 
-impl std::hash::Hash for Quat {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl core::hash::Hash for Quat {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         b"f".hash(state);
         (self.a.to_bits()).hash(state);
         b"f".hash(state);
@@ -280,8 +281,8 @@ impl PartialEq for Color {
     }
 }
 
-impl std::hash::Hash for Color {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl core::hash::Hash for Color {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         b"f".hash(state);
         (self.r.to_bits()).hash(state);
         b"f".hash(state);
@@ -316,8 +317,8 @@ impl PartialEq for Curve {
     }
 }
 
-impl std::hash::Hash for Curve {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl core::hash::Hash for Curve {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.a.hash(state);
         self.b.hash(state);
         for f in &self.floats {

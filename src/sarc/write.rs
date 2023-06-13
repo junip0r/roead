@@ -1,50 +1,22 @@
-use std::{
-    borrow::Borrow,
-    hash::Hash,
-    io::{Cursor, Seek, SeekFrom},
-    ops::Deref,
-};
+mod aglenv;
+mod factory;
 
-use binrw::{io::Write, BinReaderExt, BinWrite};
+use alloc::{
+    borrow::ToOwned,
+    string::{String, ToString},
+    vec::Vec,
+};
+use core::{borrow::Borrow, hash::Hash, mem::size_of};
+
+use byte::BytesExt;
 use indexmap::IndexMap;
 use num_integer::Integer;
-use once_cell::sync::Lazy;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 use serde::Deserialize;
 
 use super::*;
 use crate::{Endian, Result};
-
-static FACTORY_INFO: &str = include_str!("../../data/botw_resource_factory_info.tsv");
-static AGLENV_INFO: &str = include_str!("../../data/aglenv_file_info.json");
 const HASH_MULTIPLIER: u32 = 0x65;
-
-impl BinWrite for Endian {
-    type Args<'b> = ();
-
-    #[inline(always)]
-    fn write_options<W: Write + Seek>(
-        &self,
-        writer: &mut W,
-        _: binrw::Endian,
-        _: Self::Args<'_>,
-    ) -> binrw::BinResult<()> {
-        match *self {
-            Self::Big => [0xFEu8, 0xFFu8].write(writer),
-            Self::Little => [0xFFu8, 0xFEu8].write(writer),
-        }
-    }
-}
-
-fn get_botw_factory_names() -> &'static FxHashSet<&'static str> {
-    static FACTOR_NAMES: Lazy<FxHashSet<&'static str>> = Lazy::new(|| {
-        FACTORY_INFO
-            .split('\n')
-            .map(|line| unsafe { line.split('\t').next().unwrap_unchecked() })
-            .collect()
-    });
-    FACTOR_NAMES.deref()
-}
 
 #[derive(Deserialize)]
 #[allow(dead_code)]
@@ -66,17 +38,6 @@ fn align(pos: usize, alignment: usize) -> usize {
     (pos + (alignment - pos % alignment) % alignment) as usize
 }
 
-fn get_agl_env_alignment_requirements() -> &'static Vec<(String, usize)> {
-    static AGLENV_ALIGN: Lazy<Vec<(String, usize)>> = Lazy::new(|| {
-        unsafe { serde_json::from_str::<Vec<AglEnvInfo>>(AGLENV_INFO).unwrap_unchecked() }
-            .into_iter()
-            .filter_map(|e| (e.align >= 0).then_some((e.align as usize, e)))
-            .flat_map(|(align, entry)| [(entry.ext, align), (entry.bext, align)].into_iter())
-            .collect()
-    });
-    AGLENV_ALIGN.deref()
-}
-
 /// A simple SARC archive writer
 #[derive(Clone)]
 pub struct SarcWriter {
@@ -85,13 +46,13 @@ pub struct SarcWriter {
     hash_multiplier: u32,
     min_alignment: usize,
     alignment_map: FxHashMap<String, usize>,
-    brw_endian: binrw::Endian,
+    bin_endian: byte::ctx::Endian,
     /// Files to be written.
     pub files: IndexMap<String, Vec<u8>>,
 }
 
-impl std::fmt::Debug for SarcWriter {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for SarcWriter {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("SarcWriter")
             .field("endian", &self.endian)
             .field("legacy", &self.legacy)
@@ -125,9 +86,9 @@ impl SarcWriter {
             hash_multiplier: HASH_MULTIPLIER,
             alignment_map: FxHashMap::default(),
             files: IndexMap::new(),
-            brw_endian: match endian {
-                Endian::Big => binrw::Endian::Big,
-                Endian::Little => binrw::Endian::Little,
+            bin_endian: match endian {
+                Endian::Big => byte::ctx::Endian::Big,
+                Endian::Little => byte::ctx::Endian::Little,
             },
             min_alignment: 4,
         }
@@ -146,10 +107,7 @@ impl SarcWriter {
                 .files()
                 .filter_map(|f| f.name.map(|name| (name.to_string(), f.data.to_vec())))
                 .collect(),
-            brw_endian: match endian {
-                Endian::Big => binrw::Endian::Big,
-                Endian::Little => binrw::Endian::Little,
-            },
+            bin_endian: endian.into(),
             min_alignment: sarc.guess_min_alignment(),
         }
     }
@@ -158,95 +116,124 @@ impl SarcWriter {
     /// endianness. Default alignment requirements may be automatically
     /// added.
     pub fn to_binary(&mut self) -> Vec<u8> {
-        let est_size: usize = 0x14
-            + 0x0C
-            + 0x8
+        let est_size: usize = self.est_size();
+        let mut buf: Vec<u8> = alloc::vec![0u8; est_size];
+        let written = self
+            .write(&mut buf)
+            .expect("SARC should write to memory without error");
+        if written > buf.len() {
+            panic!("Overflowed SARC buffer")
+        } else {
+            unsafe { buf.set_len(written) }
+        }
+        buf
+    }
+
+    #[inline]
+    fn est_size(&self) -> usize {
+        ((Sarc::MAGIC.len()
+            + size_of::<ResHeader>()
+            + ResFatHeader::MAGIC.len()
+            + size_of::<ResFatHeader>()
+            + ResFntHeader::MAGIC.len()
+            + size_of::<ResFntHeader>()
             + self
                 .files
                 .iter()
                 .map(|(n, d)| 0x10 + align(n.len() + 1, 4) + d.len())
-                .sum::<usize>();
-        let mut buf: Vec<u8> = Vec::with_capacity((est_size as f32 * 1.5) as usize);
-        self.write(&mut Cursor::new(&mut buf))
-            .expect("SARC should write to memory without error");
-        buf
+                .sum::<usize>()) as f32
+            * 1.5) as usize
     }
 
     /// Write a SARC archive to a Write + Seek writer using the specified
     /// endianness. Default alignment requirements may be automatically
     /// added.
-    pub fn write<W: Write + Seek>(&mut self, writer: &mut W) -> Result<()> {
-        writer.seek(SeekFrom::Start(0x14))?;
-        ResFatHeader {
-            header_size: 0x0C,
-            num_files: self.files.len() as u16,
-            hash_multiplier: self.hash_multiplier,
-        }
-        .write_options(writer, self.brw_endian, ())?;
+    pub fn write<W: AsMut<[u8]>>(&mut self, mut buffer: W) -> Result<usize> {
+        let buf = buffer.as_mut();
+        if buf.len() < self.est_size() {
+            Err(byte::Error::Incomplete.into())
+        } else {
+            let offset = &mut 0x14;
+            buf.write_with(
+                offset,
+                ResFatHeader {
+                    header_size: (ResFatHeader::MAGIC.len() + size_of::<ResFatHeader>()) as u16,
+                    num_files: self.files.len() as u16,
+                    hash_multiplier: self.hash_multiplier,
+                },
+                self.bin_endian,
+            )?;
 
-        self.files.sort_unstable_by(|ka, _, kb, _| {
-            hash_name(HASH_MULTIPLIER, ka).cmp(&hash_name(HASH_MULTIPLIER, kb))
-        });
-        self.add_default_alignments();
-        let mut alignments: Vec<usize> = Vec::with_capacity(self.files.len());
+            self.files.sort_unstable_by(|ka, _, kb, _| {
+                hash_name(HASH_MULTIPLIER, ka).cmp(&hash_name(HASH_MULTIPLIER, kb))
+            });
+            self.add_default_alignments();
+            let mut alignments: Vec<usize> = Vec::with_capacity(self.files.len());
+            {
+                let mut rel_string_offset = 0;
+                let mut rel_data_offset = 0;
+                for (name, data) in self.files.iter() {
+                    let alignment = self.get_alignment_for_file(name, data);
+                    alignments.push(alignment);
 
-        {
-            let mut rel_string_offset = 0;
-            let mut rel_data_offset = 0;
-            for (name, data) in self.files.iter() {
-                let alignment = self.get_alignment_for_file(name, data);
-                alignments.push(alignment);
+                    let rel_offset = align(rel_data_offset, alignment);
+                    buf.write_with(
+                        offset,
+                        ResFatEntry {
+                            name_hash: hash_name(self.hash_multiplier, name.as_ref()),
+                            rel_name_opt_offset: 1 << 24 | (rel_string_offset / 4),
+                            data_begin: rel_offset as u32,
+                            data_end: (rel_offset + data.len()) as u32,
+                        },
+                        self.bin_endian,
+                    )?;
 
-                let offset = align(rel_data_offset, alignment);
-                ResFatEntry {
-                    name_hash: hash_name(self.hash_multiplier, name.as_ref()),
-                    rel_name_opt_offset: 1 << 24 | (rel_string_offset / 4),
-                    data_begin: offset as u32,
-                    data_end: (offset + data.len()) as u32,
+                    rel_data_offset = rel_offset + data.len();
+                    rel_string_offset += align(name.len() + 1, 4) as u32;
                 }
-                .write_options(writer, self.brw_endian, ())?;
-
-                rel_data_offset = offset + data.len();
-                rel_string_offset += align(name.len() + 1, 4) as u32;
             }
-        }
 
-        ResFntHeader {
-            header_size: 0x8,
-            reserved: 0,
-        }
-        .write_options(writer, self.brw_endian, ())?;
-        for (name, _) in self.files.iter() {
-            name.as_bytes().write_options(writer, self.brw_endian, ())?;
-            0u8.write_options(writer, self.brw_endian, ())?;
-            let pos = writer.stream_position()? as usize;
-            writer.seek(SeekFrom::Start(align(pos, 4) as u64))?;
-        }
+            buf.write_with(
+                offset,
+                ResFntHeader {
+                    header_size: 0x8,
+                    reserved: 0,
+                },
+                self.bin_endian,
+            )?;
+            for (name, _) in self.files.iter() {
+                buf.write_with(offset, name.as_bytes(), ())?;
+                buf.write_with(offset, 0u8, self.bin_endian)?;
+                *offset = align(*offset, 4);
+            }
 
-        let required_alignment = alignments
-            .iter()
-            .fold(1, |acc: usize, alignment| acc.lcm(alignment));
-        let pos = writer.stream_position()? as usize;
-        writer.seek(SeekFrom::Start(align(pos, required_alignment) as u64))?;
-        let data_offset_begin = writer.stream_position()? as u32;
-        for ((_, data), alignment) in self.files.iter().zip(alignments.iter()) {
-            let pos = writer.stream_position()? as usize;
-            writer.seek(SeekFrom::Start(align(pos, *alignment) as u64))?;
-            data.write(writer)?;
-        }
+            let required_alignment = alignments
+                .iter()
+                .fold(1, |acc: usize, alignment| acc.lcm(alignment));
+            *offset = align(*offset, required_alignment);
+            let data_offset_begin = *offset as u32;
+            for ((_, data), alignment) in self.files.iter().zip(alignments.iter()) {
+                *offset = align(*offset, *alignment);
+                buf.write_with(offset, data.as_slice(), ())?;
+            }
 
-        let file_size = writer.stream_position()? as u32;
-        writer.seek(SeekFrom::Start(0))?;
-        ResHeader {
-            header_size: 0x14,
-            bom: self.endian,
-            file_size,
-            data_offset: data_offset_begin,
-            version: 0x0100,
-            reserved: 0,
+            let file_size = *offset as u32;
+            buf[..Sarc::MAGIC.len()].copy_from_slice(Sarc::MAGIC);
+            *offset = Sarc::MAGIC.len();
+            buf.write_with(
+                offset,
+                ResHeader {
+                    header_size: (Sarc::MAGIC.len() + size_of::<ResHeader>()) as u16,
+                    bom: self.endian,
+                    file_size,
+                    data_offset: data_offset_begin,
+                    version: 0x0100,
+                    reserved: 0,
+                },
+                (),
+            )?;
+            Ok(file_size as usize)
         }
-        .write_options(writer, self.brw_endian, ())?;
-        Ok(())
     }
 
     /// Add or modify a data alignment requirement for a file type. Set the
@@ -281,10 +268,8 @@ impl SarcWriter {
     }
 
     fn add_default_alignments(&mut self) {
-        // This is perfectly sound because all of these alignments are powers
-        // of 2 and thus the calls cannot fail.
-        for (ext, alignment) in get_agl_env_alignment_requirements() {
-            self.add_alignment_requirement(ext.clone(), *alignment);
+        for (ext, alignment) in aglenv::AGLENV_INFO {
+            self.add_alignment_requirement(ext.to_string(), *alignment);
         }
         self.add_alignment_requirement("ksky".to_owned(), 8);
         self.add_alignment_requirement("bksky".to_owned(), 8);
@@ -336,7 +321,8 @@ impl SarcWriter {
     /// Set the endianness
     #[inline]
     pub fn set_endian(&mut self, endian: Endian) {
-        self.endian = endian
+        self.endian = endian;
+        self.bin_endian = endian.into();
     }
 
     /// Builder-style method to set the endianness
@@ -353,17 +339,21 @@ impl SarcWriter {
     }
 
     fn get_alignment_for_new_binary_file(data: &[u8]) -> usize {
-        let mut reader = Cursor::new(data);
         if data.len() <= 0x20 {
             return 1;
         }
-        reader.set_position(0xC);
-        if let Ok(endian) = reader.read_be::<[u8; 2]>() {
-            reader.set_position(0x1C);
-            let file_size: u32 = match &endian {
-                b"\xfe\xff" => reader.read_be().expect("Should fine valid u32 file size"),
-                b"\xff\xfe" => reader.read_le().expect("Should fine valid u32 file size"),
-                _ => return 1,
+        let offset = &mut 0xC;
+        if let Ok(endian) = data.read_with::<Endian>(offset, ()) {
+            *offset = 0x1C;
+            let file_size: u32 = match endian {
+                Endian::Big => {
+                    data.read_with(offset, byte::BE)
+                        .expect("Should fine valid u32 file size")
+                }
+                Endian::Little => {
+                    data.read_with(offset, byte::LE)
+                        .expect("Should fine valid u32 file size")
+                }
             };
             if file_size as usize != data.len() {
                 return 1;
@@ -378,8 +368,9 @@ impl SarcWriter {
         if data.len() <= 0x28 || &data[data.len() - 0x28..data.len() - 0x24] != b"FLIM" {
             1
         } else {
-            let mut cur = Cursor::new(&data[data.len() - 0x8..]);
-            let alignment: u16 = cur.read_be().expect("BFLIM should have u16 alignment info");
+            let alignment: u16 = data
+                .read_with(&mut (data.len() - 0x8), byte::BE)
+                .expect("BFLIM should have u16 alignment info");
             alignment as usize
         }
     }
@@ -397,7 +388,7 @@ impl SarcWriter {
         if self.legacy && Self::is_file_sarc(data) {
             alignment = alignment.lcm(&0x2000);
         }
-        if self.legacy || !get_botw_factory_names().contains(ext) {
+        if self.legacy || !factory::FACTORY_NAMES.contains(&ext) {
             alignment = alignment.lcm(&Self::get_alignment_for_new_binary_file(data));
             if let Endian::Big = self.endian {
                 alignment = alignment.lcm(&Self::get_alignment_for_cafe_bflim(data));
@@ -470,7 +461,7 @@ impl From<&Sarc<'_>> for SarcWriter {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use crate::sarc::{Sarc, SarcWriter};
 

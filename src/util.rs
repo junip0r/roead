@@ -1,33 +1,35 @@
 #[inline(always)]
+#[allow(dead_code)]
 pub(crate) fn align(value: u32, size: u32) -> u32 {
     value + (size - value % size) % size
 }
 
 pub(crate) trait SeekShim {
-    fn stream_len(&mut self) -> std::io::Result<u64>
+    fn stream_len(&mut self) -> no_std_io::io::Result<u64>
     where
-        Self: std::io::Read + std::io::Seek,
+        Self: no_std_io::io::Read + no_std_io::io::Seek,
     {
-        let old_pos = self.stream_position()?;
-        let len = self.seek(std::io::SeekFrom::End(0))?;
+        let old_pos = self.seek(no_std_io::io::SeekFrom::Start(0))?;
+        let len = self.seek(no_std_io::io::SeekFrom::End(0))?;
 
         // Avoid seeking a third time when we were already at the end of the
         // stream. The branch is usually way cheaper than a seek operation.
         if old_pos != len {
-            self.seek(std::io::SeekFrom::Start(old_pos))?;
+            self.seek(no_std_io::io::SeekFrom::Start(old_pos))?;
         }
 
         Ok(len)
     }
 }
 
-impl<T> SeekShim for T where T: std::io::Read + std::io::Seek {}
+impl<T> SeekShim for T where T: no_std_io::io::Read + no_std_io::io::Seek {}
 
 #[allow(non_camel_case_types)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct u24(pub u32);
 
 impl u24 {
+    #[allow(dead_code)]
     pub fn as_u32(&self) -> u32 {
         self.0
     }

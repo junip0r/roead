@@ -103,7 +103,7 @@ const fn is_valid_version(version: u16) -> bool {
     version >= 1 && version < 8
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror_no_std::Error)]
 pub enum BymlError {
     #[error("Invalid version: {0}")]
     InvalidVersion(u16),

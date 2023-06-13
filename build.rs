@@ -1,7 +1,6 @@
-use std::path::Path;
-use std::env;
 #[cfg(feature = "yaz0")]
 fn build_zlib() {
+    use std::env;
     let target = env::var("TARGET").unwrap();
     let mut cmake = std::process::Command::new("cmake");
     cmake.current_dir("lib/zlib-ng");
@@ -12,7 +11,8 @@ fn build_zlib() {
     } else {
         //Not OSX
     }
-    cmake.arg(".")
+    cmake
+        .arg(".")
         .output()
         .expect("Failed to build zlib. Is CMake installed?");
     std::process::Command::new("cmake")
@@ -25,6 +25,7 @@ fn build_zlib() {
 
 #[cfg(feature = "yaz0")]
 fn main() {
+    use std::{env, path::Path};
     build_zlib();
     let mut builder = cxx_build::bridge("src/yaz0.rs");
     builder
@@ -59,7 +60,10 @@ fn main() {
     println!("cargo:rerun-if-changed=src/yaz0.cpp");
     println!("cargo:rerun-if-changed=src/include/oead/yaz0.h");
     let dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-    println!("cargo:rustc-link-search=native={}", Path::new(&dir).join("lib/zlib-ng").display());
+    println!(
+        "cargo:rustc-link-search=native={}",
+        Path::new(&dir).join("lib/zlib-ng").display()
+    );
 }
 
 #[cfg(not(feature = "yaz0"))]

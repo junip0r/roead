@@ -53,6 +53,9 @@
 //! This project is licensed under the GPLv3+ license. oead is licensed under
 //! the GPLv2+ license.
 #![cfg_attr(not(test), deny(clippy::unwrap_used))]
+#![cfg_attr(not(feature = "std"), no_std)]
+extern crate alloc;
+
 #[cfg(feature = "aamp")]
 pub mod aamp;
 #[cfg(feature = "byml")]
@@ -67,26 +70,34 @@ mod yaml;
 pub mod yaz0;
 
 /// Error type for this crate.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror_no_std::Error)]
 
 pub enum Error {
+    #[cfg(feature = "alloc")]
     #[error("Bad magic value: found `{0}`, expected `{1}`.")]
-    BadMagic(String, &'static str),
+    BadMagic(alloc::string::String, &'static str),
+    #[cfg(not(feature = "alloc"))]
+    #[error("Bad magic value: found `{0:?}`, expected `{1}`.")]
+    BadMagic([u8; 4], &'static str),
     #[error("Data too short: found {0:#x} bytes, expected >= {1:#x}.")]
     InsufficientData(usize, usize),
     #[error("{0}")]
     InvalidData(&'static str),
     #[error("{0}")]
-    InvalidDataD(String),
+    InvalidDataD(alloc::string::String),
     #[error("Found {0}, expected {1}")]
     TypeError(smartstring::alias::String, &'static str),
+    #[cfg(feature = "no_std_io")]
     #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Io(#[from] no_std_io::io::Error),
     #[cfg(feature = "binrw")]
     #[error(transparent)]
     BinarySerde(#[from] binrw::Error),
+    #[cfg(feature = "byte")]
+    #[error("Binary error: {}", display_byte_error(.0))]
+    BinarySerDe(byte::Error),
     #[error(transparent)]
-    InvalidUtf8(#[from] std::str::Utf8Error),
+    InvalidUtf8(#[from] core::str::Utf8Error),
     #[cfg(feature = "yaml")]
     #[error(transparent)]
     InvalidNumber(#[from] lexical::Error),
@@ -100,10 +111,28 @@ pub enum Error {
     #[error(transparent)]
     Yaz0Error(#[from] cxx::Exception),
     #[error("{0}")]
-    Any(String),
+    Any(alloc::string::String),
 }
 
-#[cfg_attr(feature = "sarc", binrw::binread, brw(repr = u16))]
+#[cfg(feature = "byte")]
+impl From<byte::Error> for Error {
+    fn from(err: byte::Error) -> Self {
+        Self::BinarySerDe(err)
+    }
+}
+
+#[cfg(feature = "byte")]
+fn display_byte_error(error: &byte::Error) -> alloc::string::String {
+    #[cfg(not(feature = "std"))]
+    use alloc::borrow::ToOwned;
+
+    match error {
+        byte::Error::Incomplete => "Insufficient data".to_owned(),
+        byte::Error::BadOffset(off) => alloc::format!("Invalid offset: {off}"),
+        byte::Error::BadInput { err } => (*err).to_owned(),
+    }
+}
+
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 #[repr(u16)]
 /// Represents endianness where applicable.
@@ -117,7 +146,59 @@ pub enum Endian {
     Little = 0xFEFF,
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
+#[cfg(feature = "byte")]
+impl From<byte::ctx::Endian> for Endian {
+    fn from(value: byte::ctx::Endian) -> Self {
+        match value {
+            byte::ctx::Endian::Big => Self::Big,
+            byte::ctx::Endian::Little => Self::Little,
+        }
+    }
+}
+
+#[cfg(feature = "byte")]
+impl From<Endian> for byte::ctx::Endian {
+    fn from(value: Endian) -> Self {
+        match value {
+            Endian::Big => Self::Big,
+            Endian::Little => Self::Little,
+        }
+    }
+}
+
+#[cfg(feature = "byte")]
+impl byte::TryRead<'_> for Endian {
+    fn try_read(bytes: &'_ [u8], _ctx: ()) -> byte::Result<(Self, usize)> {
+        const LEN: usize = core::mem::size_of::<Endian>();
+        if bytes.len() < LEN {
+            Err(byte::Error::Incomplete)
+        } else {
+            match &bytes[..2] {
+                b"\xfe\xff" => Ok((Self::Big, LEN)),
+                b"\xff\xfe" => Ok((Self::Little, LEN)),
+                _ => Err(byte::Error::BadInput { err: "Invalid BOM" }),
+            }
+        }
+    }
+}
+
+#[cfg(feature = "byte")]
+impl byte::TryWrite for Endian {
+    fn try_write(self, bytes: &mut [u8], _ctx: ()) -> byte::Result<usize> {
+        const LEN: usize = core::mem::size_of::<Endian>();
+        if bytes.len() < LEN {
+            Err(byte::Error::Incomplete)
+        } else {
+            match self {
+                Self::Big => bytes[..2].copy_from_slice(b"\xfe\xff"),
+                Self::Little => bytes[..2].copy_from_slice(b"\xff\xfe"),
+            };
+            Ok(LEN)
+        }
+    }
+}
+
+pub type Result<T> = core::result::Result<T, Error>;
 
 impl Clone for Error {
     fn clone(&self) -> Self {

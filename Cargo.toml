@@ -23,20 +23,28 @@ exclude = [
 almost = { version = "0.2.0", optional = true }
 base64 = { version = "0.21.0", optional = true }
 binrw = { version = "0.11.1", optional = true }
+byte = { version = "0.2.6", optional = true }
 cxx = { version = "1.0.71", optional = true }
-indexmap = { version = "1.9.1", optional = true }
+indexmap = { version = "1.9.1", optional = true, default-features = false }
 join_str = "0.1.0"
 lexical = { version = "6.1.1", optional = true, features = ["power-of-two"] }
-once_cell = { version = "1.13.0", optional = true }
+once_cell = { version = "1.13.1", optional = true, default-features = false, features = [
+    "alloc",
+] }
 parking_lot = { version = "0.12.1", optional = true }
 num-integer = { version = "0.1.45", optional = true }
-num-traits = { version = "0.2.15", optional = true }
+num-traits = { version = "0.2.15", optional = true, default-features = false }
+no_std_io = { version = "0.6.0", optional = true }
 rustc-hash = "1.1.0"
 ryml = { version = "0.3.2", optional = true, features = ["std"] }
-serde = { version = "1.0.139", features = ["derive"], optional = true }
-serde_json = { version = "1.0.82", optional = true }
+serde = { version = "1.0.139", default-features = false, features = [
+    "derive",
+], optional = true }
+serde_json = { version = "1.0.82", default-features = false, features = [
+    "alloc",
+], optional = true }
 smartstring = "1"
-thiserror = "1.0.31"
+thiserror-no-std = "2.0.2"
 
 [build-dependencies]
 cxx-build = { version = "1.0.71", optional = true }
@@ -45,10 +53,28 @@ cxx-build = { version = "1.0.71", optional = true }
 jwalk = "0.8.1"
 
 [features]
-aamp = ["almost", "binrw", "indexmap", "num-traits", "once_cell", "parking_lot"]
-byml = ["binrw", "almost", "num-traits"]
-sarc = ["binrw", "num-integer", "serde", "serde_json", "once_cell", "indexmap"]
-yaz0 = ["cxx", "cxx-build"]
-yaml = ["ryml", "lexical", "base64"]
-with-serde = ["serde", "smartstring/serde", "indexmap/serde"]
-default = ["aamp", "byml", "sarc", "yaz0"]
+alloc = []
+aamp = [
+    "almost",
+    "binrw",
+    "indexmap",
+    "num-traits",
+    "once_cell",
+    "parking_lot",
+    "std",
+]
+byml = ["binrw", "almost", "num-traits", "std"]
+sarc = [
+    "num-integer",
+    "serde",
+    "serde_json",
+    "once_cell",
+    "indexmap",
+    "no_std_io",
+    "byte",
+]
+yaz0 = ["cxx", "cxx-build", "std"]
+yaml = ["ryml", "lexical", "base64", "std"]
+with-serde = ["serde", "smartstring/serde", "indexmap/serde", "std"]
+default = ["aamp", "byml", "sarc", "yaz0", "std"]
+std = ["alloc", "no_std_io/std", "thiserror-no-std/std", "once_cell/std"]

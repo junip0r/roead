@@ -42,9 +42,11 @@
 //! # }
 //! ```
 mod parse;
+mod structs;
+#[cfg(feature = "alloc")]
 mod write;
-use binrw::{binrw, BinRead, BinWrite};
 pub use parse::Sarc;
+#[cfg(feature = "alloc")]
 pub use write::SarcWriter;
 
 use crate::Endian;
@@ -154,8 +156,7 @@ const fn hash_name(multiplier: u32, name: &str) -> u32 {
 
 /// Size = 0x14
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
-#[binrw]
-#[brw(magic = b"SARC")]
+#[repr(C)]
 struct ResHeader {
     header_size: u16,
     bom: Endian,
@@ -167,8 +168,7 @@ struct ResHeader {
 
 /// Size = 0x0C
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-#[binrw]
-#[brw(magic = b"SFAT")]
+#[repr(C)]
 struct ResFatHeader {
     header_size: u16,
     num_files: u16,
@@ -176,7 +176,8 @@ struct ResFatHeader {
 }
 
 /// Size = 0x10
-#[derive(Debug, PartialEq, Eq, Copy, Clone, BinRead, BinWrite)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[repr(C)]
 struct ResFatEntry {
     name_hash: u32,
     rel_name_opt_offset: u32,
@@ -185,8 +186,7 @@ struct ResFatEntry {
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
-#[binrw]
-#[brw(magic = b"SFNT")]
+#[repr(C)]
 struct ResFntHeader {
     header_size: u16,
     reserved: u16,
