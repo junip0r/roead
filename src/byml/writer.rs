@@ -407,6 +407,11 @@ mod test {
             println!("{}", file);
             let bytes =
                 std::fs::read(std::path::Path::new("test/byml").join([file, ".byml"].join("")))
+                    .or_else(|_| {
+                        std::fs::read(
+                            std::path::Path::new("test/byml").join([file, ".sbyml"].join("")),
+                        )
+                    })
                     .unwrap();
             let byml = Byml::from_binary(bytes).unwrap();
             let new_le_bytes = byml.to_binary(Endian::Little);

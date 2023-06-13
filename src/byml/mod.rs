@@ -1018,6 +1018,7 @@ impl Byml {
 #[cfg(test)]
 pub(self) static FILES: &[&str] = &[
     "A-1_Dynamic",
+    #[cfg(feature = "yaz0")]
     "D-3_Dynamic",
     "EventInfo.product",
     "GameROMPlayer",

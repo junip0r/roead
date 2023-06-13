@@ -163,6 +163,7 @@ impl<R: Read + Seek> Parser<R> {
             Endian::Little
         };
         if !is_valid_version(header.inner.version) {
+            dbg!(header.inner);
             return Err(Error::InvalidData("Unsupported BYML version (1-7 only)"));
         }
         let mut reader = BinReader::new(reader, endian);
@@ -328,6 +329,11 @@ mod test {
             println!("{}", file);
             let bytes =
                 std::fs::read(std::path::Path::new("test/byml").join([file, ".byml"].join("")))
+                    .or_else(|_| {
+                        std::fs::read(
+                            std::path::Path::new("test/byml").join([file, ".sbyml"].join("")),
+                        )
+                    })
                     .unwrap();
             let byml = Byml::from_binary(bytes).unwrap();
             match byml {

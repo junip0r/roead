@@ -28,23 +28,32 @@ cxx = { version = "1.0.71", optional = true }
 indexmap = { version = "1.9.1", optional = true, default-features = false }
 join_str = "0.1.0"
 lexical = { version = "6.1.1", optional = true, features = ["power-of-two"] }
-once_cell = { version = "1.13.1", optional = true, default-features = false, features = [
-    "alloc",
-] }
 parking_lot = { version = "0.12.1", optional = true }
 num-integer = { version = "0.1.45", optional = true }
 num-traits = { version = "0.2.15", optional = true, default-features = false }
 no_std_io = { version = "0.6.0", optional = true }
 rustc-hash = "1.1.0"
 ryml = { version = "0.3.2", optional = true, features = ["std"] }
-serde = { version = "1.0.139", default-features = false, features = [
-    "derive",
-], optional = true }
-serde_json = { version = "1.0.82", default-features = false, features = [
-    "alloc",
-], optional = true }
 smartstring = "1"
 thiserror-no-std = "2.0.2"
+
+[dependencies.once_cell]
+version = "1.13.1"
+optional = true
+default-features = false
+features = ["alloc"]
+
+[dependencies.serde]
+version = "1.0.139"
+default-features = false
+features = ["derive"]
+optional = true
+
+[dependencies.serde_json]
+version = "1.0.82"
+default-features = false
+features = ["alloc"]
+optional = true
 
 [build-dependencies]
 cxx-build = { version = "1.0.71", optional = true }

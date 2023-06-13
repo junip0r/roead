@@ -10,7 +10,7 @@ pub(crate) trait SeekShim {
     where
         Self: no_std_io::io::Read + no_std_io::io::Seek,
     {
-        let old_pos = self.seek(no_std_io::io::SeekFrom::Start(0))?;
+        let old_pos = self.seek(no_std_io::io::SeekFrom::Current(0))?;
         let len = self.seek(no_std_io::io::SeekFrom::End(0))?;
 
         // Avoid seeking a third time when we were already at the end of the
