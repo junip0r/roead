@@ -73,7 +73,7 @@ sarc = [
     "no_std_io",
     "byte",
 ]
-yaz0 = ["cxx", "cxx-build", "std"]
+yaz0 = ["alloc", "cxx", "cxx-build", "byte"]
 yaml = ["ryml", "lexical", "base64", "std"]
 with-serde = ["serde", "smartstring/serde", "indexmap/serde", "std"]
 default = ["aamp", "byml", "sarc", "yaz0", "std"]

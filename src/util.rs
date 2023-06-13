@@ -4,6 +4,7 @@ pub(crate) fn align(value: u32, size: u32) -> u32 {
     value + (size - value % size) % size
 }
 
+#[cfg(feature = "no_std_io")]
 pub(crate) trait SeekShim {
     fn stream_len(&mut self) -> no_std_io::io::Result<u64>
     where
@@ -22,6 +23,7 @@ pub(crate) trait SeekShim {
     }
 }
 
+#[cfg(feature = "no_std_io")]
 impl<T> SeekShim for T where T: no_std_io::io::Read + no_std_io::io::Seek {}
 
 #[allow(non_camel_case_types)]

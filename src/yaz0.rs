@@ -1,15 +1,18 @@
 //! Bindings for the `oead::yaz0` module, which supports Yaz0 decompression and
 //! fast compression (using syaz0).
-use std::borrow::Cow;
+use alloc::{
+    borrow::Cow,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 
-use binrw::binrw;
+use byte::{BytesExt, TryRead};
 
 use crate::{Error, Result};
 
 /// The header of Yaz0 compressed data.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-#[binrw]
-#[brw(big)]
 pub struct Header {
     /// Should be "Yaz0".
     pub magic: [u8; 4],
@@ -21,9 +24,31 @@ pub struct Header {
     reserved: [u8; 4],
 }
 
+impl TryRead<'_> for Header {
+    fn try_read(bytes: &'_ [u8], _ctx: ()) -> byte::Result<(Self, usize)> {
+        let offset = &mut 0;
+        let magic: [u8; 4] = bytes
+            .read_with::<&[u8]>(offset, byte::ctx::Bytes::Len(4))?
+            .try_into()
+            .unwrap();
+        Ok((
+            Self {
+                magic,
+                uncompressed_size: bytes.read_with(offset, byte::BE)?,
+                data_alignment: bytes.read_with(offset, byte::BE)?,
+                reserved: bytes
+                    .read_with::<&[u8]>(offset, byte::ctx::Bytes::Len(4))?
+                    .try_into()
+                    .unwrap(),
+            },
+            *offset,
+        ))
+    }
+}
+
 /// Get the header of Yaz0 compressed data, if it exists.
 pub fn get_header(data: impl AsRef<[u8]>) -> Option<Header> {
-    binrw::BinRead::read(&mut std::io::Cursor::new(data.as_ref())).ok()
+    Header::try_read(data.as_ref(), ()).ok().map(|(h, _)| h)
 }
 
 /// Decompress Yaz0 data to vector.
@@ -147,6 +172,7 @@ pub fn compress_with_options(data: impl AsRef<[u8]>, options: CompressOptions) -
 /// file extension (starts with `s`, but does not equal `sarc`). Returns a
 /// [`Cow`] which contains the original data if the data does not need to be
 /// compressed, or containing the compressed data otherwise.
+#[cfg(feature = "std")]
 #[inline]
 pub fn compress_if(data: &[u8], path: impl AsRef<std::path::Path>) -> Cow<'_, [u8]> {
     if path
@@ -173,7 +199,7 @@ mod ffi {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     static FILES: &[(&str, [u8; 4], usize)] = &[
         ("ActorInfo.product.sbyml", [b'Y', b'B', 0x02, 0x0], 1963604),

@@ -54,6 +54,7 @@
 //! the GPLv2+ license.
 #![cfg_attr(not(test), deny(clippy::unwrap_used))]
 #![cfg_attr(not(feature = "std"), no_std)]
+#[cfg(feature = "alloc")]
 extern crate alloc;
 
 #[cfg(feature = "aamp")]
