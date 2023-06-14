@@ -72,7 +72,7 @@ mod parser;
 #[binrw::binrw]
 #[brw(repr = u8)]
 #[repr(u8)]
-enum NodeType {
+pub enum NodeType {
     HashMap = 0x20,
     ValueHashMap = 0x21,
     String = 0xa0,
