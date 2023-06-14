@@ -58,6 +58,7 @@
 //! # Ok(())
 //! # }
 //! ```
+mod reader;
 #[cfg(feature = "yaml")]
 mod text;
 mod writer;

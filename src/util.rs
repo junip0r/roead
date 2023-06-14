@@ -37,6 +37,44 @@ impl u24 {
     }
 }
 
+#[cfg(feature = "byte")]
+impl byte::TryRead<'_, byte::ctx::Endian> for u24 {
+    fn try_read(bytes: &[u8], ctx: byte::ctx::Endian) -> byte::Result<(Self, usize)> {
+        byte::check_len(bytes, 3)?;
+        Ok((
+            match ctx {
+                byte::ctx::Endian::Little => {
+                    u24(u32::from(bytes[0]) | u32::from(bytes[1]) << 8 | u32::from(bytes[2]) << 16)
+                }
+                byte::ctx::Endian::Big => {
+                    u24(u32::from(bytes[2]) | u32::from(bytes[1]) << 8 | u32::from(bytes[0]) << 16)
+                }
+            },
+            3,
+        ))
+    }
+}
+
+#[cfg(feature = "byte")]
+impl byte::TryWrite<byte::ctx::Endian> for u24 {
+    fn try_write(self, bytes: &mut [u8], ctx: byte::ctx::Endian) -> byte::Result<usize> {
+        byte::check_len(bytes, 3)?;
+        match ctx {
+            byte::ctx::Endian::Big => {
+                bytes[0] = (self.0 >> 16) as u8;
+                bytes[1] = (self.0 >> 8) as u8;
+                bytes[2] = self.0 as u8;
+            }
+            byte::ctx::Endian::Little => {
+                bytes[0] = self.0 as u8;
+                bytes[1] = (self.0 >> 8) as u8;
+                bytes[2] = (self.0 >> 16) as u8;
+            }
+        }
+        Ok(3)
+    }
+}
+
 #[cfg(feature = "binrw")]
 const _: () = {
     impl binrw::BinRead for u24 {
