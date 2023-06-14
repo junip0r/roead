@@ -8,6 +8,7 @@
 //! ```
 //! # use roead::sarc::*;
 //! # fn do_stuff_with_data(data: &[u8]) -> () {}
+//! # #[cfg(feature = "std")]
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let data = std::fs::read("test/sarc/Dungeon119.pack")?;
 //! let sarc: Sarc = Sarc::new(&data)?; // In this case we borrow data, but we can also own
@@ -19,11 +20,14 @@
 //! }
 //! # Ok(())
 //! # }
+//! # #[cfg(not(feature = "std"))]
+//! # fn main() {}
 //! ```
 //! And writing a SARC:
 //! ```
 //! # use roead::sarc::*;
 //! # use roead::Endian;
+//! # #[cfg(feature = "std")]
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let mut sarc_writer = SarcWriter::new(Endian::Big); // Create an empty SARC
 //! sarc_writer.set_min_alignment(4); // Set the alignment, if needed
@@ -40,6 +44,8 @@
 //! let another_sarc_writer = SarcWriter::from_sarc(&sarc);
 //! # Ok(())
 //! # }
+//! # #[cfg(not(feature = "std"))]
+//! # fn main() {}
 //! ```
 mod parse;
 mod structs;

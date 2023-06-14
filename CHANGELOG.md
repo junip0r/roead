@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added `no_std` support for the `yaz0` and `sarc` features. SARC parsing works
+  without `alloc`, while SARC writing and all yaz0 features require it.
+
+### Fixed
+
+- Fixed some feature-independence issues
+
 ## [0.23.1]
 
 ### Changed
