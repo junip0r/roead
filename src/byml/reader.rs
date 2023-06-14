@@ -306,6 +306,7 @@ impl Iterator for BymlArrayIterator<'_> {
             )
             .ok()?
             .0;
+            self.index += 1;
             Some(BymlData { value, node_type })
         }
     }
@@ -473,14 +474,14 @@ impl<'a> BymlIter<'a> {
     }
 
     #[inline]
+    fn parse_container(&self, offset: usize) -> Result<BymlContainerHeader> {
+        Ok(BymlContainerHeader::try_read(&self.data[offset..], self.endian)?.0)
+    }
+
+    #[inline]
     fn root_node(&self) -> Option<BymlContainerHeader> {
-        self.root_node_idx.and_then(|idx| {
-            Some(
-                BymlContainerHeader::try_read(&self.data[idx..idx + 4], self.endian)
-                    .ok()?
-                    .0,
-            )
-        })
+        self.root_node_idx
+            .and_then(|idx| self.parse_container(idx).ok())
     }
 
     #[inline]
@@ -529,7 +530,11 @@ impl<'a> BymlIter<'a> {
     pub fn iter_as_array(&self) -> Option<BymlArrayIterator<'_>> {
         if self.is_array() {
             let node = unsafe { self.root_node().unwrap_unchecked() };
-            Some(BymlArrayIterator::new(node, &self.data, self.endian))
+            Some(BymlArrayIterator::new(
+                node,
+                &self.data[unsafe { self.root_node_idx.unwrap_unchecked() }..],
+                self.endian,
+            ))
         } else {
             None
         }
@@ -542,7 +547,12 @@ impl<'a> BymlIter<'a> {
             let keys_offset = self.header().ok()?.hash_key_table_offset as usize;
             let strings =
                 BymlStringTableReader::new(&self.data[keys_offset..], self.endian).ok()?;
-            Some(BymlMapIterator::new(node, &self.data, strings, self.endian))
+            Some(BymlMapIterator::new(
+                node,
+                &self.data[unsafe { self.root_node_idx.unwrap_unchecked() }..],
+                strings,
+                self.endian,
+            ))
         } else {
             None
         }
@@ -559,6 +569,74 @@ impl<'a> BymlIter<'a> {
             })
             .flatten()
     }
+
+    #[inline]
+    pub fn iter_map_data(&self, data: BymlData) -> Option<BymlMapIterator<'_>> {
+        if data.node_type == NodeType::Map {
+            let node = self.parse_container(data.as_offset()).ok()?;
+            let keys_offset = self.header().ok()?.hash_key_table_offset as usize;
+            let strings =
+                BymlStringTableReader::new(&self.data[keys_offset..], self.endian).ok()?;
+            Some(BymlMapIterator::new(
+                node,
+                &self.data[data.as_offset()..],
+                strings,
+                self.endian,
+            ))
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn iter_array_data(&self, data: BymlData) -> Option<BymlArrayIterator<'_>> {
+        if data.node_type == NodeType::Array {
+            let node = self.parse_container(data.as_offset()).ok()?;
+            Some(BymlArrayIterator::new(
+                node,
+                &self.data[data.as_offset()..],
+                self.endian,
+            ))
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn get_i64_data(&self, data: BymlData) -> Option<i64> {
+        if data.node_type == NodeType::I64 {
+            let value = i64::try_read(&self.data[data.as_offset()..], self.endian)
+                .ok()?
+                .0;
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn get_u64_data(&self, data: BymlData) -> Option<u64> {
+        if data.node_type == NodeType::U64 {
+            let value = u64::try_read(&self.data[data.as_offset()..], self.endian)
+                .ok()?
+                .0;
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn get_double_data(&self, data: BymlData) -> Option<f64> {
+        if data.node_type == NodeType::Double {
+            let value = f64::try_read(&self.data[data.as_offset()..], self.endian)
+                .ok()?
+                .0;
+            Some(value)
+        } else {
+            None
+        }
+    }
 }
 
 #[cfg(test)]
@@ -573,5 +651,18 @@ mod tests {
             len: 1,
             node_type: crate::byml::NodeType::Map,
         });
+        for (k, v) in parser.iter_as_map().unwrap() {
+            assert!(v.is_array());
+            for v in parser.iter_array_data(v).unwrap() {
+                assert!(v.is_map());
+                for (k, v) in parser.iter_map_data(v).unwrap() {
+                    let val = match v.node_type {
+                        crate::byml::NodeType::String => parser.get_string_data(v).unwrap(),
+                        _ => "other",
+                    };
+                    println!("{}: {}", k, val);
+                }
+            }
+        }
     }
 }
