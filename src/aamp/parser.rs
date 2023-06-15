@@ -1,6 +1,7 @@
-use std::io::{Read, Seek};
-
-use binrw::prelude::*;
+use binrw::{
+    io::{Read, Seek},
+    prelude::*,
+};
 
 use super::*;
 use crate::{util::SeekShim, Error, Result};
@@ -19,13 +20,13 @@ impl ParameterIO {
         #[cfg(feature = "yaz0")]
         {
             if data.as_ref().starts_with(b"Yaz0") {
-                return Parser::new(std::io::Cursor::new(crate::yaz0::decompress(
+                return Parser::new(binrw::io::Cursor::new(crate::yaz0::decompress(
                     data.as_ref(),
                 )?))?
                 .parse();
             }
         }
-        Parser::new(std::io::Cursor::new(data.as_ref()))?.parse()
+        Parser::new(binrw::io::Cursor::new(data.as_ref()))?.parse()
     }
 }
 
@@ -83,7 +84,8 @@ impl<R: Read + Seek> Parser<R> {
 
     #[inline]
     fn seek(&mut self, offset: u32) -> Result<()> {
-        self.reader.seek(std::io::SeekFrom::Start(offset as u64))?;
+        self.reader
+            .seek(binrw::io::SeekFrom::Start(offset as u64))?;
         Ok(())
     }
 

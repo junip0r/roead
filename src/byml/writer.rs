@@ -1,10 +1,8 @@
-use std::{
-    collections::BTreeMap,
+use ::alloc::{boxed::Box, collections::BTreeMap, format, rc::Rc, vec::Vec};
+use binrw::{
     io::{Cursor, Seek, SeekFrom, Write},
-    rc::Rc,
+    prelude::*,
 };
-
-use binrw::prelude::*;
 use rustc_hash::FxHashMap;
 
 use super::*;
@@ -400,6 +398,7 @@ impl<'a, W: Write + Seek> WriteContext<'a, W> {
 mod test {
     use super::*;
 
+    #[cfg(feature = "std")]
     #[test]
     fn binary_roundtrip() {
         println!("{}", std::mem::size_of::<Map>());

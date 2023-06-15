@@ -122,7 +122,7 @@ impl<const N: usize> core::fmt::Display for FixedSafeString<N> {
 impl<const N: usize> binrw::BinRead for FixedSafeString<N> {
     type Args<'a> = ();
 
-    fn read_options<R: std::io::Read + std::io::Seek>(
+    fn read_options<R: binrw::io::Read + binrw::io::Seek>(
         reader: &mut R,
         _: binrw::Endian,
         _: Self::Args<'_>,

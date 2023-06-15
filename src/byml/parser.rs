@@ -1006,7 +1006,7 @@ mod tests {
         assert_eq!(&bin, b"\0\0\0\0\0\0");
     }
 
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "std")]
     #[test]
     fn from_bytes() {
         use crate::byml::{Byml, FILES};

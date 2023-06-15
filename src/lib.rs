@@ -90,9 +90,15 @@ pub enum Error {
     InvalidDataD(alloc::string::String),
     #[error("Found {0}, expected {1}")]
     TypeError(smartstring::alias::String, &'static str),
-    #[cfg(feature = "no_std_io")]
+    #[cfg(all(feature = "no_std_io", not(feature = "std")))]
     #[error(transparent)]
     Io(#[from] no_std_io::io::Error),
+    #[cfg(all(feature = "binrw", not(feature = "std")))]
+    #[error(transparent)]
+    BinIo(#[from] binrw::io::Error),
+    #[cfg(feature = "std")]
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
     #[cfg(feature = "binrw")]
     #[error(transparent)]
     BinarySerde(#[from] binrw::Error),

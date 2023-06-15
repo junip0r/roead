@@ -22,7 +22,7 @@ exclude = [
 [dependencies]
 almost = { version = "0.2.0", optional = true }
 base64 = { version = "0.21.0", optional = true }
-binrw = { version = "0.11.1", optional = true }
+binrw = { version = "0.11.1", optional = true, default-features = false }
 byte = { version = "0.2.6", optional = true }
 cxx = { version = "1.0.71", optional = true }
 indexmap = { version = "1.9.1", optional = true, default-features = false }
@@ -73,7 +73,7 @@ aamp = [
     "types",
     "std",
 ]
-byml = ["binrw", "almost", "num-traits", "std", "byte"]
+byml = ["binrw", "almost", "num-traits", "byte"]
 sarc = [
     "num-integer",
     "serde",
@@ -88,4 +88,4 @@ yaz0 = ["alloc", "cxx", "cxx-build", "byte"]
 yaml = ["ryml", "lexical", "base64", "std"]
 with-serde = ["serde", "smartstring/serde", "indexmap/serde", "std"]
 default = ["aamp", "byml", "sarc", "yaz0", "std"]
-std = ["alloc", "no_std_io/std", "thiserror-no-std/std", "once_cell/std"]
+std = ["alloc", "binrw/std", "no_std_io/std", "thiserror-no-std/std", "once_cell/std"]
