@@ -212,7 +212,6 @@ impl TryRead<'_, ctx::Endian> for BymlContainerHeader {
 pub struct BymlMapIterator<'a> {
     data: &'a [u8],
     strings: BymlStringTableReader<'a>,
-    node: BymlContainerHeader,
     index: usize,
     invalid: bool,
     ctx: ctx::Endian,
@@ -220,11 +219,6 @@ pub struct BymlMapIterator<'a> {
 
 impl<'a> BymlMapIterator<'a> {
     const TABLE_OFFSET: usize = 4;
-
-    #[inline]
-    fn len(&self) -> usize {
-        self.node.len
-    }
 
     #[inline]
     fn new(
@@ -236,7 +230,6 @@ impl<'a> BymlMapIterator<'a> {
         Self {
             data,
             strings,
-            node,
             index: 0,
             invalid: data.len() < node.len * 8,
             ctx,
@@ -245,7 +238,7 @@ impl<'a> BymlMapIterator<'a> {
 }
 
 impl<'a> Iterator for BymlMapIterator<'a> {
-    type Item = (&'a str, BymlData);
+    type Item = (&'a str, BymlNode);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.invalid {
@@ -257,10 +250,10 @@ impl<'a> Iterator for BymlMapIterator<'a> {
                     .0;
             let key = self.strings.get(pair.key)?;
             self.index += 1;
-            Some((unsafe { core::mem::transmute(key) }, BymlData {
-                node_type: pair.node_type,
-                value: pair.value,
-            }))
+            Some((
+                unsafe { core::mem::transmute(key) },
+                BymlNode::new(pair.value, pair.node_type),
+            ))
         }
     }
 }
@@ -289,8 +282,8 @@ impl<'a> BymlArrayIterator<'a> {
     }
 }
 
-impl Iterator for BymlArrayIterator<'_> {
-    type Item = BymlData;
+impl<'a> Iterator for BymlArrayIterator<'a> {
+    type Item = BymlNode;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.invalid {
@@ -307,126 +300,149 @@ impl Iterator for BymlArrayIterator<'_> {
             .ok()?
             .0;
             self.index += 1;
-            Some(BymlData { value, node_type })
+            Some(BymlNode::new(value, node_type))
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct BymlHashMapIterator<'a> {
+    data: &'a [u8],
+    len: usize,
+    index: usize,
+    invalid: bool,
+    value: bool,
+    ctx: ctx::Endian,
+}
+
+impl<'a> BymlHashMapIterator<'a> {
+    const TABLE_OFFSET: usize = 4;
+
+    #[inline]
+    fn new(node: BymlContainerHeader, data: &'a [u8], value: bool, ctx: ctx::Endian) -> Self {
+        Self {
+            data,
+            index: 0,
+            len: node.len,
+            value,
+            invalid: data.len() < Self::TABLE_OFFSET + node.len * 9,
+            ctx,
+        }
+    }
+}
+
+impl<'a> Iterator for BymlHashMapIterator<'a> {
+    type Item = (u32, BymlNode);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.invalid {
+            None
+        } else {
+            let size = if self.value { 12 } else { 8 };
+            let hash = u32::try_read(
+                &self.data[Self::TABLE_OFFSET + self.index * size..],
+                self.ctx,
+            )
+            .ok()?
+            .0;
+            let value = u32::try_read(
+                &self.data[Self::TABLE_OFFSET + self.index * size + 4..],
+                self.ctx,
+            )
+            .ok()?
+            .0;
+            let node_type = NodeType::try_read(
+                &self.data[Self::TABLE_OFFSET + self.len * size + self.index..],
+                self.ctx,
+            )
+            .ok()?
+            .0;
+            self.index += 1;
+            Some((hash, BymlNode::new(value, node_type)))
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct BymlData {
-    value: u32,
-    node_type: NodeType,
+pub enum BymlNode {
+    HashMap { offset: usize },
+    ValueHashMap { offset: usize },
+    String { index: u32 },
+    Binary { offset: usize },
+    File { offset: usize },
+    Array { offset: usize },
+    Map { offset: usize },
+    StringTable { offset: usize },
+    Bool(bool),
+    I32(i32),
+    Float(f32),
+    U32(u32),
+    I64 { offset: usize },
+    U64 { offset: usize },
+    Double { offset: usize },
+    Null,
 }
 
-impl BymlData {
-    #[inline]
-    pub fn node_type(&self) -> NodeType {
-        self.node_type
-    }
-
-    #[inline]
-    pub fn get_bool(&self) -> Option<bool> {
-        (self.node_type == NodeType::Bool).then_some(self.value != 0)
-    }
-
-    #[inline]
-    pub fn as_bool(&self) -> bool {
-        self.value != 0
-    }
-
-    #[inline]
-    pub fn get_i32(&self) -> Option<i32> {
-        (self.node_type == NodeType::I32).then_some(self.value as i32)
-    }
-
-    #[inline]
-    pub fn as_i32(&self) -> i32 {
-        self.value as i32
-    }
-
-    #[inline]
-    pub fn get_float(&self) -> Option<f32> {
-        (self.node_type == NodeType::Float).then_some(self.value as f32)
-    }
-
-    #[inline]
-    pub fn as_float(&self) -> f32 {
-        self.value as f32
-    }
-
-    #[inline]
-    pub fn get_u32(&self) -> Option<u32> {
-        (self.node_type == NodeType::U32).then_some(self.value)
-    }
-
-    #[inline]
-    pub fn as_u32(&self) -> u32 {
-        self.value
-    }
-
-    #[inline]
-    pub fn is_map(&self) -> bool {
-        self.node_type == NodeType::Map
-    }
-
-    #[inline]
-    pub fn is_array(&self) -> bool {
-        self.node_type == NodeType::Array
-    }
-
-    #[inline]
-    pub fn is_hash_map(&self) -> bool {
-        self.node_type == NodeType::HashMap
-    }
-
-    #[inline]
-    pub fn is_value_hash_map(&self) -> bool {
-        self.node_type == NodeType::ValueHashMap
-    }
-
-    #[inline]
-    pub fn is_container(&self) -> bool {
-        super::is_container_type(self.node_type)
-    }
-
-    #[inline]
-    pub fn is_string(&self) -> bool {
-        self.node_type == NodeType::String
-    }
-
-    #[inline]
-    pub fn is_binary(&self) -> bool {
-        self.node_type == NodeType::Binary
-    }
-
-    #[inline]
-    pub fn is_file(&self) -> bool {
-        self.node_type == NodeType::File
-    }
-
-    #[inline]
-    pub fn is_i64(&self) -> bool {
-        self.node_type == NodeType::I64
-    }
-
-    #[inline]
-    pub fn is_u64(&self) -> bool {
-        self.node_type == NodeType::U64
-    }
-
-    #[inline]
-    pub fn is_double(&self) -> bool {
-        self.node_type == NodeType::Double
-    }
-
-    #[inline]
-    pub fn is_null(&self) -> bool {
-        self.node_type == NodeType::Null
-    }
-
-    #[inline]
-    pub fn as_offset(&self) -> usize {
-        self.value as usize
+impl BymlNode {
+    pub fn new(value: u32, node_type: NodeType) -> Self {
+        match node_type {
+            NodeType::String => Self::String { index: value },
+            NodeType::HashMap => {
+                Self::HashMap {
+                    offset: value as usize,
+                }
+            }
+            NodeType::ValueHashMap => {
+                Self::ValueHashMap {
+                    offset: value as usize,
+                }
+            }
+            NodeType::Binary => {
+                Self::Binary {
+                    offset: value as usize,
+                }
+            }
+            NodeType::File => {
+                Self::File {
+                    offset: value as usize,
+                }
+            }
+            NodeType::Array => {
+                Self::Array {
+                    offset: value as usize,
+                }
+            }
+            NodeType::Map => {
+                Self::Map {
+                    offset: value as usize,
+                }
+            }
+            NodeType::StringTable => {
+                Self::StringTable {
+                    offset: value as usize,
+                }
+            }
+            NodeType::I64 => {
+                Self::I64 {
+                    offset: value as usize,
+                }
+            }
+            NodeType::U64 => {
+                Self::U64 {
+                    offset: value as usize,
+                }
+            }
+            NodeType::Double => {
+                Self::Double {
+                    offset: value as usize,
+                }
+            }
+            NodeType::Bool => Self::Bool(value == 1),
+            NodeType::I32 => Self::I32(value as i32),
+            NodeType::Float => Self::Float(value as f32),
+            NodeType::U32 => Self::U32(value),
+            NodeType::Null => Self::Null,
+        }
     }
 }
 
@@ -474,6 +490,24 @@ impl<'a> BymlIter<'a> {
     }
 
     #[inline]
+    fn key_table(&self) -> Result<BymlStringTableReader> {
+        let keys_offset = self.header()?.hash_key_table_offset as usize;
+        Ok(BymlStringTableReader::new(
+            &self.data[keys_offset..],
+            self.endian,
+        )?)
+    }
+
+    #[inline]
+    fn string_table(&self) -> Result<BymlStringTableReader> {
+        let string_offset = self.header()?.string_table_offset as usize;
+        Ok(BymlStringTableReader::new(
+            &self.data[string_offset..],
+            self.endian,
+        )?)
+    }
+
+    #[inline]
     fn parse_container(&self, offset: usize) -> Result<BymlContainerHeader> {
         Ok(BymlContainerHeader::try_read(&self.data[offset..], self.endian)?.0)
     }
@@ -514,16 +548,27 @@ impl<'a> BymlIter<'a> {
 
     #[inline]
     pub fn is_container(&self) -> bool {
-        self.root_node_idx
-            .and_then(|idx| {
-                Some(super::is_container_type(
-                    BymlContainerHeader::try_read(&self.data[idx..idx + 4], self.endian)
-                        .ok()?
-                        .0
-                        .node_type,
-                ))
-            })
+        self.root_node()
+            .map(|n| super::is_container_type(n.node_type))
             .unwrap_or(false)
+    }
+
+    #[inline]
+    fn get_key_index(&self, key: &str) -> Option<u32> {
+        let keys = self.key_table().ok()?;
+        keys.pos(key)
+    }
+
+    #[inline]
+    pub fn get<'i, I: Into<super::BymlIndex<'i>>>(&self, key: I) -> Option<BymlNode> {
+        match key.into() {
+            super::BymlIndex::ArrayIdx(i) => self.iter_as_array().and_then(|mut a| a.nth(i)),
+            super::BymlIndex::StringIdx(s) => {
+                let index = self.get_key_index(s)?;
+                todo!()
+            }
+            _ => todo!(),
+        }
     }
 
     #[inline]
@@ -544,13 +589,10 @@ impl<'a> BymlIter<'a> {
     pub fn iter_as_map(&self) -> Option<BymlMapIterator<'_>> {
         if self.is_map() {
             let node = unsafe { self.root_node().unwrap_unchecked() };
-            let keys_offset = self.header().ok()?.hash_key_table_offset as usize;
-            let strings =
-                BymlStringTableReader::new(&self.data[keys_offset..], self.endian).ok()?;
             Some(BymlMapIterator::new(
                 node,
                 &self.data[unsafe { self.root_node_idx.unwrap_unchecked() }..],
-                strings,
+                self.key_table().ok()?,
                 self.endian,
             ))
         } else {
@@ -559,28 +601,24 @@ impl<'a> BymlIter<'a> {
     }
 
     #[inline]
-    pub fn get_string_data(&self, data: BymlData) -> Option<&str> {
-        data.is_string()
-            .then(|| {
-                let strings_offset = self.header().ok()?.string_table_offset as usize;
-                let strings =
-                    BymlStringTableReader::new(&self.data[strings_offset..], self.endian).ok()?;
-                strings.get(u24(data.value))
-            })
-            .flatten()
+    pub fn get_string_data(&self, data: BymlNode) -> Option<&str> {
+        if let BymlNode::String { index } = data {
+            let strings_offset = self.header().ok()?.string_table_offset as usize;
+            let strings = self.string_table().ok()?;
+            strings.get(u24(index))
+        } else {
+            None
+        }
     }
 
     #[inline]
-    pub fn iter_map_data(&self, data: BymlData) -> Option<BymlMapIterator<'_>> {
-        if data.node_type == NodeType::Map {
-            let node = self.parse_container(data.as_offset()).ok()?;
-            let keys_offset = self.header().ok()?.hash_key_table_offset as usize;
-            let strings =
-                BymlStringTableReader::new(&self.data[keys_offset..], self.endian).ok()?;
+    pub fn iter_map_data(&self, data: BymlNode) -> Option<BymlMapIterator<'_>> {
+        if let BymlNode::Map { offset } = data {
+            let node = self.parse_container(offset).ok()?;
             Some(BymlMapIterator::new(
                 node,
-                &self.data[data.as_offset()..],
-                strings,
+                &self.data[offset..],
+                self.key_table().ok()?,
                 self.endian,
             ))
         } else {
@@ -589,12 +627,12 @@ impl<'a> BymlIter<'a> {
     }
 
     #[inline]
-    pub fn iter_array_data(&self, data: BymlData) -> Option<BymlArrayIterator<'_>> {
-        if data.node_type == NodeType::Array {
-            let node = self.parse_container(data.as_offset()).ok()?;
+    pub fn iter_array_data(&self, data: BymlNode) -> Option<BymlArrayIterator<'_>> {
+        if let BymlNode::Array { offset } = data {
+            let node = self.parse_container(offset).ok()?;
             Some(BymlArrayIterator::new(
                 node,
-                &self.data[data.as_offset()..],
+                &self.data[offset..],
                 self.endian,
             ))
         } else {
@@ -603,11 +641,39 @@ impl<'a> BymlIter<'a> {
     }
 
     #[inline]
-    pub fn get_i64_data(&self, data: BymlData) -> Option<i64> {
-        if data.node_type == NodeType::I64 {
-            let value = i64::try_read(&self.data[data.as_offset()..], self.endian)
-                .ok()?
-                .0;
+    pub fn iter_hash_map_data(&self, data: BymlNode) -> Option<BymlHashMapIterator<'_>> {
+        if let BymlNode::HashMap { offset } = data {
+            let node = self.parse_container(offset).ok()?;
+            Some(BymlHashMapIterator::new(
+                node,
+                &self.data[offset..],
+                false,
+                self.endian,
+            ))
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn iter_value_hash_map_data(&self, data: BymlNode) -> Option<BymlHashMapIterator<'_>> {
+        if let BymlNode::ValueHashMap { offset } = data {
+            let node = self.parse_container(offset).ok()?;
+            Some(BymlHashMapIterator::new(
+                node,
+                &self.data[offset..],
+                true,
+                self.endian,
+            ))
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn get_i64_data(&self, data: BymlNode) -> Option<i64> {
+        if let BymlNode::I64 { offset } = data {
+            let value = i64::try_read(&self.data[offset..], self.endian).ok()?.0;
             Some(value)
         } else {
             None
@@ -615,11 +681,9 @@ impl<'a> BymlIter<'a> {
     }
 
     #[inline]
-    pub fn get_u64_data(&self, data: BymlData) -> Option<u64> {
-        if data.node_type == NodeType::U64 {
-            let value = u64::try_read(&self.data[data.as_offset()..], self.endian)
-                .ok()?
-                .0;
+    pub fn get_u64_data(&self, data: BymlNode) -> Option<u64> {
+        if let BymlNode::U64 { offset } = data {
+            let value = u64::try_read(&self.data[offset..], self.endian).ok()?.0;
             Some(value)
         } else {
             None
@@ -627,12 +691,38 @@ impl<'a> BymlIter<'a> {
     }
 
     #[inline]
-    pub fn get_double_data(&self, data: BymlData) -> Option<f64> {
-        if data.node_type == NodeType::Double {
-            let value = f64::try_read(&self.data[data.as_offset()..], self.endian)
-                .ok()?
-                .0;
+    pub fn get_double_data(&self, data: BymlNode) -> Option<f64> {
+        if let BymlNode::Double { offset } = data {
+            let value = f64::try_read(&self.data[offset..], self.endian).ok()?.0;
             Some(value)
+        } else {
+            None
+        }
+    }
+
+    pub fn get_binary_data(&self, data: BymlNode) -> Option<&[u8]> {
+        if let BymlNode::Binary { offset } = data {
+            let data = &self.data[offset..];
+            let size = u32::try_read(data, self.endian).ok()?.0 as usize;
+            if data.len() >= size + 4 {
+                Some(unsafe { core::slice::from_raw_parts(data[4..].as_ptr(), size) })
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn get_file_data(&self, data: BymlNode) -> Option<&[u8]> {
+        if let BymlNode::Binary { offset } = data {
+            let data = &self.data[offset..];
+            let size = u32::try_read(data, self.endian).ok()?.0 as usize;
+            if data.len() >= size + 8 {
+                Some(unsafe { core::slice::from_raw_parts(data[8..].as_ptr(), size) })
+            } else {
+                None
+            }
         } else {
             None
         }
@@ -652,15 +742,11 @@ mod tests {
             node_type: crate::byml::NodeType::Map,
         });
         for (k, v) in parser.iter_as_map().unwrap() {
-            assert!(v.is_array());
+            assert!(matches!(v, super::BymlNode::Array { .. }));
             for v in parser.iter_array_data(v).unwrap() {
-                assert!(v.is_map());
+                assert!(matches!(v, super::BymlNode::Map { .. }));
                 for (k, v) in parser.iter_map_data(v).unwrap() {
-                    let val = match v.node_type {
-                        crate::byml::NodeType::String => parser.get_string_data(v).unwrap(),
-                        _ => "other",
-                    };
-                    println!("{}: {}", k, val);
+                    println!("{}: {:?}", k, v);
                 }
             }
         }
