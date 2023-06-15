@@ -11,12 +11,10 @@ impl super::Byml {
         #[cfg(feature = "yaz0")]
         {
             if data.as_ref().starts_with(b"Yaz0") {
-                return BymlIter::new(crate::yaz0::decompress(data).unwrap())
-                    .unwrap()
-                    .try_into();
+                return BymlIter::new(crate::yaz0::decompress(data)?)?.try_into();
             }
         }
-        BymlIter::new(data.as_ref()).unwrap().try_into()
+        BymlIter::new(data.as_ref())?.try_into()
     }
 }
 
@@ -25,7 +23,7 @@ impl TryRead<'_, ctx::Endian> for super::NodeType {
         if bytes.is_empty() {
             Err(byte::Error::Incomplete)
         } else {
-            match u8::try_read(bytes, ctx).unwrap().0 {
+            match u8::try_read(bytes, ctx)?.0 {
                 0x20 => Ok((Self::HashMap, 1)),
                 0x21 => Ok((Self::ValueHashMap, 1)),
                 0xa0 => Ok((Self::String, 1)),
@@ -72,7 +70,7 @@ struct Header {
 
 impl TryRead<'_, ()> for Header {
     fn try_read(bytes: &'_ [u8], _ctx: ()) -> byte::Result<(Self, usize)> {
-        check_len(bytes, size_of::<Header>()).unwrap();
+        check_len(bytes, size_of::<Header>())?;
         let endian = match &bytes[..2] {
             b"BY" => ctx::Endian::Big,
             b"YB" => ctx::Endian::Little,
@@ -86,10 +84,10 @@ impl TryRead<'_, ()> for Header {
         Ok((
             Self {
                 magic: [bytes[0], bytes[1]],
-                version: bytes.read_with(offset, endian).unwrap(),
-                hash_key_table_offset: bytes.read_with(offset, endian).unwrap(),
-                string_table_offset: bytes.read_with(offset, endian).unwrap(),
-                root_node_offset: bytes.read_with(offset, endian).unwrap(),
+                version: bytes.read_with(offset, endian)?,
+                hash_key_table_offset: bytes.read_with(offset, endian)?,
+                string_table_offset: bytes.read_with(offset, endian)?,
+                root_node_offset: bytes.read_with(offset, endian)?,
             },
             *offset,
         ))
@@ -120,11 +118,11 @@ impl<'a> BymlStringTableReader<'a> {
 
     #[inline]
     fn new(data: &'a [u8], ctx: ctx::Endian) -> Result<Self> {
-        let node_type = NodeType::try_read(data, ctx).unwrap().0;
+        let node_type = NodeType::try_read(data, ctx)?.0;
         if node_type != NodeType::StringTable {
             Err(crate::Error::InvalidData("Invalid string table"))
         } else {
-            let len = u24::try_read(&data[1..], ctx).unwrap().0;
+            let len = u24::try_read(&data[1..], ctx)?.0;
             Ok(Self {
                 data,
                 len: len.0 as usize,
@@ -156,16 +154,14 @@ impl<'a> BymlStringTableReader<'a> {
             while start < end {
                 index = (start + end) / 2;
                 let offset = u32::try_read(&self.data[Self::TABLE_OFFSET + index * 4..], self.ctx)
-                    .ok()
-                    .unwrap()
+                    .ok()?
                     .0 as usize;
                 if offset > self.data.len() {
                     return None;
                 }
                 let string: &str = self.data[offset..]
                     .read_with(&mut 0, byte::ctx::Str::Delimiter(0))
-                    .ok()
-                    .unwrap();
+                    .ok()?;
                 match string.cmp(key) {
                     core::cmp::Ordering::Equal => return Some(index as u32),
                     core::cmp::Ordering::Less => start = index + 1,
@@ -185,12 +181,12 @@ struct BymlContainerHeader {
 
 impl TryRead<'_, ctx::Endian> for BymlContainerHeader {
     fn try_read(bytes: &'_ [u8], ctx: ctx::Endian) -> byte::Result<(Self, usize)> {
-        check_len(bytes, 4).unwrap();
+        check_len(bytes, 4)?;
         let offset = &mut 0;
         Ok((
             Self {
-                node_type: bytes.read_with(offset, ctx).unwrap(),
-                len: bytes.read_with::<u24>(offset, ctx).unwrap().0 as usize,
+                node_type: bytes.read_with(offset, ctx)?,
+                len: bytes.read_with::<u24>(offset, ctx)?.0 as usize,
             },
             4,
         ))
@@ -238,8 +234,7 @@ impl<'a> BymlMapIterator<'a> {
                 index = (start + end) / 2;
                 let pair =
                     BymlMapPair::try_read(&self.data[Self::TABLE_OFFSET + index * 8..], self.ctx)
-                        .ok()
-                        .unwrap()
+                        .ok()?
                         .0;
                 match pair.key.cmp(&key_index) {
                     core::cmp::Ordering::Equal => {
@@ -267,10 +262,9 @@ impl<'a> Iterator for BymlMapIterator<'a> {
         } else {
             let pair =
                 BymlMapPair::try_read(&self.data[Self::TABLE_OFFSET + self.index * 8..], self.ctx)
-                    .ok()
-                    .unwrap()
+                    .ok()?
                     .0;
-            let key = self.strings.get(pair.key).unwrap();
+            let key = self.strings.get(pair.key)?;
             self.index += 1;
             Some((
                 unsafe { core::mem::transmute(key) },
@@ -318,12 +312,10 @@ impl<'a> Iterator for BymlArrayIterator<'a> {
         } else {
             let node_type =
                 NodeType::try_read(&self.data[Self::TYPE_TABLE_OFFSET + self.index..], self.ctx)
-                    .ok()
-                    .unwrap()
+                    .ok()?
                     .0;
             let value = u32::try_read(&self.data[self.value_start() + self.index * 4..], self.ctx)
-                .ok()
-                .unwrap()
+                .ok()?
                 .0;
             self.index += 1;
             Some(BymlNode::new(value, node_type))
@@ -367,8 +359,7 @@ impl<'a> BymlHashMapIterator<'a> {
                 index = (start + end) / 2;
                 let size = if self.value { 12 } else { 8 };
                 let hash = u32::try_read(&self.data[Self::TABLE_OFFSET + index * size..], self.ctx)
-                    .ok()
-                    .unwrap()
+                    .ok()?
                     .0;
                 match hash.cmp(&key) {
                     core::cmp::Ordering::Equal => {
@@ -376,15 +367,13 @@ impl<'a> BymlHashMapIterator<'a> {
                             &self.data[Self::TABLE_OFFSET + index * size + 4..],
                             self.ctx,
                         )
-                        .ok()
-                        .unwrap()
+                        .ok()?
                         .0;
                         let node_type = NodeType::try_read(
                             &self.data[Self::TABLE_OFFSET + self.len * size + index..],
                             self.ctx,
                         )
-                        .ok()
-                        .unwrap()
+                        .ok()?
                         .0;
                         return Some(BymlNode::new(value, node_type));
                     }
@@ -413,22 +402,19 @@ impl<'a> Iterator for BymlHashMapIterator<'a> {
                 &self.data[Self::TABLE_OFFSET + self.index * size..],
                 self.ctx,
             )
-            .ok()
-            .unwrap()
+            .ok()?
             .0;
             let value = u32::try_read(
                 &self.data[Self::TABLE_OFFSET + self.index * size + 4..],
                 self.ctx,
             )
-            .ok()
-            .unwrap()
+            .ok()?
             .0;
             let node_type = NodeType::try_read(
                 &self.data[Self::TABLE_OFFSET + self.len * size + self.index..],
                 self.ctx,
             )
-            .ok()
-            .unwrap()
+            .ok()?
             .0;
             self.index += 1;
             Some((hash, BymlNode::new(value, node_type)))
@@ -528,13 +514,13 @@ struct BymlMapPair {
 
 impl TryRead<'_, ctx::Endian> for BymlMapPair {
     fn try_read(bytes: &'_ [u8], ctx: ctx::Endian) -> byte::Result<(Self, usize)> {
-        check_len(bytes, 8).unwrap();
+        check_len(bytes, 8)?;
         let offset = &mut 0;
         Ok((
             Self {
-                key: bytes.read_with(offset, ctx).unwrap(),
-                node_type: bytes.read_with(offset, ctx).unwrap(),
-                value: bytes.read_with(offset, ctx).unwrap(),
+                key: bytes.read_with(offset, ctx)?,
+                node_type: bytes.read_with(offset, ctx)?,
+                value: bytes.read_with(offset, ctx)?,
             },
             8,
         ))
@@ -544,7 +530,7 @@ impl TryRead<'_, ctx::Endian> for BymlMapPair {
 impl<'a> BymlIter<'a> {
     pub fn new<I: Into<Buffer<'a>>>(data: I) -> Result<Self> {
         let data = data.into();
-        let header = Header::try_read(&data, ()).unwrap().0;
+        let header = Header::try_read(&data, ())?.0;
         Ok(Self {
             data,
             endian: match &header.magic {
@@ -559,28 +545,24 @@ impl<'a> BymlIter<'a> {
 
     #[inline]
     fn header(&self) -> Result<Header> {
-        Ok(Header::try_read(&self.data, ()).unwrap().0)
+        Ok(Header::try_read(&self.data, ())?.0)
     }
 
     #[inline]
     fn key_table(&self) -> Result<BymlStringTableReader> {
-        let keys_offset = self.header().unwrap().hash_key_table_offset as usize;
+        let keys_offset = self.header()?.hash_key_table_offset as usize;
         BymlStringTableReader::new(&self.data[keys_offset..], self.endian)
     }
 
     #[inline]
     fn string_table(&self) -> Result<BymlStringTableReader> {
-        let string_offset = self.header().unwrap().string_table_offset as usize;
+        let string_offset = self.header()?.string_table_offset as usize;
         BymlStringTableReader::new(&self.data[string_offset..], self.endian)
     }
 
     #[inline]
     fn parse_container(&self, offset: usize) -> Result<BymlContainerHeader> {
-        Ok(
-            BymlContainerHeader::try_read(&self.data[offset..], self.endian)
-                .unwrap()
-                .0,
-        )
+        Ok(BymlContainerHeader::try_read(&self.data[offset..], self.endian)?.0)
     }
 
     #[inline]
@@ -626,7 +608,7 @@ impl<'a> BymlIter<'a> {
 
     #[inline]
     fn get_key_index(&self, key: &str) -> Option<u32> {
-        let keys = self.key_table().ok().unwrap();
+        let keys = self.key_table().ok()?;
         keys.pos(key)
     }
 
@@ -635,7 +617,7 @@ impl<'a> BymlIter<'a> {
         match key.into() {
             super::BymlIndex::ArrayIdx(i) => self.iter_as_array().and_then(|mut a| a.nth(i)),
             super::BymlIndex::StringIdx(s) => {
-                let index = self.get_key_index(s).unwrap();
+                let index = self.get_key_index(s)?;
                 self.iter_as_map()
                     .and_then(|map| map.find_by_key(u24(index)))
             }
@@ -656,7 +638,7 @@ impl<'a> BymlIter<'a> {
         match key.into() {
             super::BymlIndex::ArrayIdx(i) => self.iter_array_data(node).and_then(|mut a| a.nth(i)),
             super::BymlIndex::StringIdx(s) => {
-                let index = self.get_key_index(s).unwrap();
+                let index = self.get_key_index(s)?;
                 self.iter_map_data(node)
                     .and_then(|map| map.find_by_key(u24(index)))
             }
@@ -692,7 +674,7 @@ impl<'a> BymlIter<'a> {
             Some(BymlMapIterator::new(
                 node,
                 &self.data[unsafe { self.root_node_idx.unwrap_unchecked() }..],
-                self.key_table().ok().unwrap(),
+                self.key_table().ok()?,
                 self.endian,
             ))
         } else {
@@ -733,7 +715,7 @@ impl<'a> BymlIter<'a> {
     #[inline]
     pub fn get_string_data(&self, data: BymlNode) -> Option<&str> {
         if let BymlNode::String { index } = data {
-            let strings = self.string_table().ok().unwrap();
+            let strings = self.string_table().ok()?;
             strings.get(u24(index))
         } else {
             None
@@ -743,11 +725,11 @@ impl<'a> BymlIter<'a> {
     #[inline]
     pub fn iter_map_data(&self, data: BymlNode) -> Option<BymlMapIterator<'_>> {
         if let BymlNode::Map { offset } = data {
-            let node = self.parse_container(offset).ok().unwrap();
+            let node = self.parse_container(offset).ok()?;
             Some(BymlMapIterator::new(
                 node,
                 &self.data[offset..],
-                self.key_table().ok().unwrap(),
+                self.key_table().ok()?,
                 self.endian,
             ))
         } else {
@@ -758,7 +740,7 @@ impl<'a> BymlIter<'a> {
     #[inline]
     pub fn iter_array_data(&self, data: BymlNode) -> Option<BymlArrayIterator<'_>> {
         if let BymlNode::Array { offset } = data {
-            let node = self.parse_container(offset).ok().unwrap();
+            let node = self.parse_container(offset).ok()?;
             Some(BymlArrayIterator::new(
                 node,
                 &self.data[offset..],
@@ -772,7 +754,7 @@ impl<'a> BymlIter<'a> {
     #[inline]
     pub fn iter_hash_map_data(&self, data: BymlNode) -> Option<BymlHashMapIterator<'_>> {
         if let BymlNode::HashMap { offset } = data {
-            let node = self.parse_container(offset).ok().unwrap();
+            let node = self.parse_container(offset).ok()?;
             Some(BymlHashMapIterator::new(
                 node,
                 &self.data[offset..],
@@ -787,7 +769,7 @@ impl<'a> BymlIter<'a> {
     #[inline]
     pub fn iter_value_hash_map_data(&self, data: BymlNode) -> Option<BymlHashMapIterator<'_>> {
         if let BymlNode::ValueHashMap { offset } = data {
-            let node = self.parse_container(offset).ok().unwrap();
+            let node = self.parse_container(offset).ok()?;
             Some(BymlHashMapIterator::new(
                 node,
                 &self.data[offset..],
@@ -802,10 +784,7 @@ impl<'a> BymlIter<'a> {
     #[inline]
     pub fn get_i64_data(&self, data: BymlNode) -> Option<i64> {
         if let BymlNode::I64 { offset } = data {
-            let value = i64::try_read(&self.data[offset..], self.endian)
-                .ok()
-                .unwrap()
-                .0;
+            let value = i64::try_read(&self.data[offset..], self.endian).ok()?.0;
             Some(value)
         } else {
             None
@@ -815,10 +794,7 @@ impl<'a> BymlIter<'a> {
     #[inline]
     pub fn get_u64_data(&self, data: BymlNode) -> Option<u64> {
         if let BymlNode::U64 { offset } = data {
-            let value = u64::try_read(&self.data[offset..], self.endian)
-                .ok()
-                .unwrap()
-                .0;
+            let value = u64::try_read(&self.data[offset..], self.endian).ok()?.0;
             Some(value)
         } else {
             None
@@ -828,10 +804,7 @@ impl<'a> BymlIter<'a> {
     #[inline]
     pub fn get_double_data(&self, data: BymlNode) -> Option<f64> {
         if let BymlNode::Double { offset } = data {
-            let value = f64::try_read(&self.data[offset..], self.endian)
-                .ok()
-                .unwrap()
-                .0;
+            let value = f64::try_read(&self.data[offset..], self.endian).ok()?.0;
             Some(value)
         } else {
             None
@@ -841,7 +814,7 @@ impl<'a> BymlIter<'a> {
     pub fn get_binary_data(&self, data: BymlNode) -> Option<&[u8]> {
         if let BymlNode::Binary { offset } = data {
             let data = &self.data[offset..];
-            let size = u32::try_read(data, self.endian).ok().unwrap().0 as usize;
+            let size = u32::try_read(data, self.endian).ok()?.0 as usize;
             if data.len() >= size + 4 {
                 Some(unsafe { core::slice::from_raw_parts(data[4..].as_ptr(), size) })
             } else {
@@ -855,7 +828,7 @@ impl<'a> BymlIter<'a> {
     pub fn get_file_data(&self, data: BymlNode) -> Option<&[u8]> {
         if let BymlNode::File { offset } = data {
             let data = &self.data[offset..];
-            let size = u32::try_read(data, self.endian).ok().unwrap().0 as usize;
+            let size = u32::try_read(data, self.endian).ok()?.0 as usize;
             if data.len() >= size + 8 {
                 Some(unsafe { core::slice::from_raw_parts(data[8..].as_ptr(), size) })
             } else {
@@ -873,8 +846,7 @@ impl<'a> BymlIter<'a> {
                 self.iter_hash_map_data(node)
                     .ok_or(byte::Error::BadInput {
                         err: "Invalid hash map node",
-                    })
-                    .unwrap()
+                    })?
                     .map(|(k, v)| self.node_to_byml(v).map(|v| (k, v)))
                     .collect::<Result<_>>()
                     .map(super::Byml::HashMap)
@@ -883,8 +855,7 @@ impl<'a> BymlIter<'a> {
                 self.iter_value_hash_map_data(node)
                     .ok_or(byte::Error::BadInput {
                         err: "Invalid value hash map node",
-                    })
-                    .unwrap()
+                    })?
                     .map(|(k, v)| self.node_to_byml(v).map(|v| (k, v)))
                     .collect::<Result<_>>()
                     .map(super::Byml::HashMap)
@@ -894,8 +865,7 @@ impl<'a> BymlIter<'a> {
                     self.get_string_data(node)
                         .ok_or(byte::Error::BadInput {
                             err: "Invalid string node",
-                        })
-                        .unwrap()
+                        })?
                         .into(),
                 ))
             }
@@ -904,8 +874,7 @@ impl<'a> BymlIter<'a> {
                     self.get_binary_data(node)
                         .ok_or(byte::Error::BadInput {
                             err: "Invalid binary node",
-                        })
-                        .unwrap()
+                        })?
                         .into(),
                 ))
             }
@@ -914,8 +883,7 @@ impl<'a> BymlIter<'a> {
                     self.get_file_data(node)
                         .ok_or(byte::Error::BadInput {
                             err: "Invalid file node",
-                        })
-                        .unwrap()
+                        })?
                         .into(),
                 ))
             }
@@ -923,8 +891,7 @@ impl<'a> BymlIter<'a> {
                 self.iter_array_data(node)
                     .ok_or(byte::Error::BadInput {
                         err: "Invalid array node",
-                    })
-                    .unwrap()
+                    })?
                     .map(|node| self.node_to_byml(node))
                     .collect::<Result<_>>()
             }
@@ -932,8 +899,7 @@ impl<'a> BymlIter<'a> {
                 self.iter_map_data(node)
                     .ok_or(byte::Error::BadInput {
                         err: "Invalid map node",
-                    })
-                    .unwrap()
+                    })?
                     .map(|(k, v)| self.node_to_byml(v).map(|v| (k.into(), v)))
                     .collect::<Result<_>>()
                     .map(super::Byml::Map)
@@ -944,8 +910,7 @@ impl<'a> BymlIter<'a> {
                     self.get_i64_data(node)
                         .ok_or(byte::Error::BadInput {
                             err: "Invalid i64 node",
-                        })
-                        .unwrap()
+                        })?
                         .into(),
                 ))
             }
@@ -954,8 +919,7 @@ impl<'a> BymlIter<'a> {
                     self.get_u64_data(node)
                         .ok_or(byte::Error::BadInput {
                             err: "Invalid u64 node",
-                        })
-                        .unwrap()
+                        })?
                         .into(),
                 ))
             }
@@ -964,8 +928,7 @@ impl<'a> BymlIter<'a> {
                     self.get_double_data(node)
                         .ok_or(byte::Error::BadInput {
                             err: "Invalid double node",
-                        })
-                        .unwrap()
+                        })?
                         .into(),
                 ))
             }
