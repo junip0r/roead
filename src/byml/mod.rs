@@ -58,7 +58,7 @@
 //! # Ok(())
 //! # }
 //! ```
-mod reader;
+mod parser;
 #[cfg(feature = "yaml")]
 mod text;
 mod writer;
@@ -66,7 +66,6 @@ use num_traits::AsPrimitive;
 use smartstring::alias::String;
 
 use crate::{Error, Result};
-mod parser;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[binrw::binrw]
