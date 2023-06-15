@@ -168,7 +168,7 @@ impl<'a> BymlStringTableReader<'a> {
             let mut index;
             while start < end {
                 index = (start + end) / 2;
-                let offset = u32::try_read(&self.data[Self::TABLE_OFFSET..], self.ctx)
+                let offset = u32::try_read(&self.data[Self::TABLE_OFFSET + index * 4..], self.ctx)
                     .ok()?
                     .0 as usize;
                 if offset > self.data.len() {
@@ -178,8 +178,8 @@ impl<'a> BymlStringTableReader<'a> {
                     .read_with(&mut 0, byte::ctx::Str::Delimiter(0))
                     .ok()?;
                 match string.cmp(key) {
+                    core::cmp::Ordering::Equal => return Some(index as u32),
                     core::cmp::Ordering::Less => start = index + 1,
-                    core::cmp::Ordering::Equal => return Some(offset as u32),
                     core::cmp::Ordering::Greater => end = index,
                 }
             }
@@ -211,6 +211,7 @@ impl TryRead<'_, ctx::Endian> for BymlContainerHeader {
 #[derive(Debug)]
 pub struct BymlMapIterator<'a> {
     data: &'a [u8],
+    len: usize,
     strings: BymlStringTableReader<'a>,
     index: usize,
     invalid: bool,
@@ -229,10 +230,40 @@ impl<'a> BymlMapIterator<'a> {
     ) -> Self {
         Self {
             data,
+            len: node.len,
             strings,
             index: 0,
             invalid: data.len() < node.len * 8,
             ctx,
+        }
+    }
+
+    fn find_by_key(&self, key_index: u24) -> Option<BymlNode> {
+        if self.invalid {
+            None
+        } else {
+            let mut start = 0;
+            let mut end = self.len;
+            let mut index;
+            while start < end {
+                index = (start + end) / 2;
+                let pair =
+                    BymlMapPair::try_read(&self.data[Self::TABLE_OFFSET + index * 8..], self.ctx)
+                        .ok()?
+                        .0;
+                match pair.key.cmp(&key_index) {
+                    core::cmp::Ordering::Equal => {
+                        return Some(BymlNode::new(pair.value, pair.node_type));
+                    }
+                    core::cmp::Ordering::Less => {
+                        start = index + 1;
+                    }
+                    core::cmp::Ordering::Greater => {
+                        end = index;
+                    }
+                }
+            }
+            None
         }
     }
 }
@@ -280,6 +311,11 @@ impl<'a> BymlArrayIterator<'a> {
             ctx,
         }
     }
+
+    #[inline]
+    fn value_start(&self) -> usize {
+        crate::util::align((Self::TYPE_TABLE_OFFSET + self.node.len) as u32, 4) as usize
+    }
 }
 
 impl<'a> Iterator for BymlArrayIterator<'a> {
@@ -293,12 +329,9 @@ impl<'a> Iterator for BymlArrayIterator<'a> {
                 NodeType::try_read(&self.data[Self::TYPE_TABLE_OFFSET + self.index..], self.ctx)
                     .ok()?
                     .0;
-            let value = u32::try_read(
-                &self.data[Self::TYPE_TABLE_OFFSET + self.node.len + self.index * 4..],
-                self.ctx,
-            )
-            .ok()?
-            .0;
+            let value = u32::try_read(&self.data[self.value_start() + self.index * 4..], self.ctx)
+                .ok()?
+                .0;
             self.index += 1;
             Some(BymlNode::new(value, node_type))
         }
@@ -327,6 +360,47 @@ impl<'a> BymlHashMapIterator<'a> {
             value,
             invalid: data.len() < Self::TABLE_OFFSET + node.len * 9,
             ctx,
+        }
+    }
+
+    fn find_by_key(&self, key: u32) -> Option<BymlNode> {
+        if self.invalid {
+            None
+        } else {
+            let mut start = 0;
+            let mut end = self.len;
+            let mut index;
+            while start < end {
+                index = (start + end) / 2;
+                let size = if self.value { 12 } else { 8 };
+                let hash = u32::try_read(&self.data[Self::TABLE_OFFSET + index * size..], self.ctx)
+                    .ok()?
+                    .0;
+                match hash.cmp(&key) {
+                    core::cmp::Ordering::Equal => {
+                        let value = u32::try_read(
+                            &self.data[Self::TABLE_OFFSET + index * size + 4..],
+                            self.ctx,
+                        )
+                        .ok()?
+                        .0;
+                        let node_type = NodeType::try_read(
+                            &self.data[Self::TABLE_OFFSET + self.len * size + index..],
+                            self.ctx,
+                        )
+                        .ok()?
+                        .0;
+                        return Some(BymlNode::new(value, node_type));
+                    }
+                    core::cmp::Ordering::Less => {
+                        start = index + 1;
+                    }
+                    core::cmp::Ordering::Greater => {
+                        end = index;
+                    }
+                }
+            }
+            None
         }
     }
 }
@@ -492,19 +566,13 @@ impl<'a> BymlIter<'a> {
     #[inline]
     fn key_table(&self) -> Result<BymlStringTableReader> {
         let keys_offset = self.header()?.hash_key_table_offset as usize;
-        Ok(BymlStringTableReader::new(
-            &self.data[keys_offset..],
-            self.endian,
-        )?)
+        BymlStringTableReader::new(&self.data[keys_offset..], self.endian)
     }
 
     #[inline]
     fn string_table(&self) -> Result<BymlStringTableReader> {
         let string_offset = self.header()?.string_table_offset as usize;
-        Ok(BymlStringTableReader::new(
-            &self.data[string_offset..],
-            self.endian,
-        )?)
+        BymlStringTableReader::new(&self.data[string_offset..], self.endian)
     }
 
     #[inline]
@@ -565,9 +633,38 @@ impl<'a> BymlIter<'a> {
             super::BymlIndex::ArrayIdx(i) => self.iter_as_array().and_then(|mut a| a.nth(i)),
             super::BymlIndex::StringIdx(s) => {
                 let index = self.get_key_index(s)?;
-                todo!()
+                self.iter_as_map()
+                    .and_then(|map| map.find_by_key(u24(index)))
             }
-            _ => todo!(),
+            super::BymlIndex::HashIdx(h) => {
+                self.iter_as_hash_map()
+                    .and_then(|m| m.find_by_key(h))
+                    .or_else(|| self.iter_as_value_hash_map().and_then(|m| m.find_by_key(h)))
+            }
+        }
+    }
+
+    #[inline]
+    pub fn get_from<'i, I: Into<super::BymlIndex<'i>>>(
+        &self,
+        node: BymlNode,
+        key: I,
+    ) -> Option<BymlNode> {
+        match key.into() {
+            super::BymlIndex::ArrayIdx(i) => self.iter_array_data(node).and_then(|mut a| a.nth(i)),
+            super::BymlIndex::StringIdx(s) => {
+                let index = self.get_key_index(s)?;
+                self.iter_map_data(node)
+                    .and_then(|map| map.find_by_key(u24(index)))
+            }
+            super::BymlIndex::HashIdx(h) => {
+                self.iter_hash_map_data(node)
+                    .and_then(|m| m.find_by_key(h))
+                    .or_else(|| {
+                        self.iter_value_hash_map_data(node)
+                            .and_then(|m| m.find_by_key(h))
+                    })
+            }
         }
     }
 
@@ -593,6 +690,36 @@ impl<'a> BymlIter<'a> {
                 node,
                 &self.data[unsafe { self.root_node_idx.unwrap_unchecked() }..],
                 self.key_table().ok()?,
+                self.endian,
+            ))
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn iter_as_hash_map(&self) -> Option<BymlHashMapIterator<'_>> {
+        if self.is_hash_map() {
+            let node = unsafe { self.root_node().unwrap_unchecked() };
+            Some(BymlHashMapIterator::new(
+                node,
+                &self.data[unsafe { self.root_node_idx.unwrap_unchecked() }..],
+                false,
+                self.endian,
+            ))
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn iter_as_value_hash_map(&self) -> Option<BymlHashMapIterator<'_>> {
+        if self.is_value_hash_map() {
+            let node = unsafe { self.root_node().unwrap_unchecked() };
+            Some(BymlHashMapIterator::new(
+                node,
+                &self.data[unsafe { self.root_node_idx.unwrap_unchecked() }..],
+                true,
                 self.endian,
             ))
         } else {
@@ -732,7 +859,7 @@ impl<'a> BymlIter<'a> {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn basics() {
+    fn parse() {
         let data =
             include_bytes!("../../test/byml/Mrg_01e57204_MrgD100_B4-B3-B2-1A90E17A.bcett.byml");
         let parser = super::BymlIter::new(data.as_slice()).unwrap();
@@ -741,14 +868,28 @@ mod tests {
             len: 1,
             node_type: crate::byml::NodeType::Map,
         });
-        for (k, v) in parser.iter_as_map().unwrap() {
-            assert!(matches!(v, super::BymlNode::Array { .. }));
-            for v in parser.iter_array_data(v).unwrap() {
-                assert!(matches!(v, super::BymlNode::Map { .. }));
-                for (k, v) in parser.iter_map_data(v).unwrap() {
-                    println!("{}: {:?}", k, v);
-                }
-            }
+    }
+
+    #[test]
+    fn iter() {
+        let data = include_bytes!("../../test/byml/USen.byml");
+        let parser = super::BymlIter::new(data.as_slice()).unwrap();
+        assert!(parser.is_hash_map());
+        for (_, v) in parser.iter_as_hash_map().unwrap() {
+            assert!(matches!(v, super::BymlNode::Map { .. }));
+            let hash = parser.get_from(v, "Hash").unwrap();
+            assert!(matches!(hash, super::BymlNode::U32(_)));
         }
+        let second = parser.get(4253374u32).unwrap();
+        assert_eq!(
+            parser.get_from(second, "Hash").unwrap(),
+            super::BymlNode::U32(0xD548098A)
+        );
+        let third = parser.get(7458797u32).unwrap();
+        let channel_info = parser.get_from(third, "ChannelInfo").unwrap();
+        let first = parser.get_from(channel_info, 0).unwrap();
+        let adpcm_context = parser.get_from(first, "AdpcmContext").unwrap();
+        let bin = parser.get_binary_data(adpcm_context).unwrap();
+        assert_eq!(&bin, b"\0\0\0\0\0\0");
     }
 }

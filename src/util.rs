@@ -27,7 +27,7 @@ pub(crate) trait SeekShim {
 impl<T> SeekShim for T where T: no_std_io::io::Read + no_std_io::io::Seek {}
 
 #[allow(non_camel_case_types)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct u24(pub u32);
 
 impl u24 {
