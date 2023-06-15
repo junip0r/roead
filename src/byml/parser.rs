@@ -115,30 +115,6 @@ struct BymlStringTableReader<'a> {
     ctx:  ctx::Endian,
 }
 
-struct BymlStringOffsetIterator<'a> {
-    data:  &'a [u8],
-    ctx:   ctx::Endian,
-    len:   usize,
-    index: usize,
-}
-
-impl Iterator for BymlStringOffsetIterator<'_> {
-    type Item = u32;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.index * 4 > self.data.len() || self.index >= self.len {
-            None
-        } else {
-            let offset = u32::try_read(&self.data[self.index * 4..], self.ctx)
-                .ok()
-                .unwrap()
-                .0;
-            self.index += 1;
-            Some(offset)
-        }
-    }
-}
-
 impl<'a> BymlStringTableReader<'a> {
     const TABLE_OFFSET: usize = 4;
 
@@ -158,19 +134,14 @@ impl<'a> BymlStringTableReader<'a> {
     }
 
     #[inline]
-    fn offset_iter(&self) -> BymlStringOffsetIterator<'_> {
-        BymlStringOffsetIterator {
-            data:  &self.data[Self::TABLE_OFFSET..],
-            ctx:   self.ctx,
-            len:   self.len,
-            index: 0,
-        }
-    }
-
-    #[inline]
     fn get<'s>(&'s self, index: u24) -> Option<&'a str> {
-        let offset = self.offset_iter().nth(index.0 as usize).unwrap() as usize;
-        self.data[offset..]
+        let offset = u32::try_read(
+            &self.data[Self::TABLE_OFFSET + index.0 as usize * 4..],
+            self.ctx,
+        )
+        .ok()?
+        .0;
+        self.data[offset as usize..]
             .read_with(&mut 0, byte::ctx::Str::Delimiter(0))
             .ok()
     }
