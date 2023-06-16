@@ -11,10 +11,10 @@ impl super::Byml {
         #[cfg(feature = "yaz0")]
         {
             if data.as_ref().starts_with(b"Yaz0") {
-                return BymlIter::new(crate::yaz0::decompress(data)?)?.try_into();
+                return BymlReader::new(crate::yaz0::decompress(data)?)?.try_into();
             }
         }
-        BymlIter::new(data.as_ref())?.try_into()
+        BymlReader::new(data.as_ref())?.try_into()
     }
 }
 
@@ -100,7 +100,7 @@ type Buffer<'a> = alloc::borrow::Cow<'a, [u8]>;
 type Buffer<'a> = &'a [u8];
 
 #[derive(Debug, PartialEq)]
-pub struct BymlIter<'a> {
+pub struct BymlReader<'a> {
     data: Buffer<'a>,
     endian: ctx::Endian,
     root_node_idx: Option<usize>,
@@ -527,7 +527,7 @@ impl TryRead<'_, ctx::Endian> for BymlMapPair {
     }
 }
 
-impl<'a> BymlIter<'a> {
+impl<'a> BymlReader<'a> {
     pub fn new<I: Into<Buffer<'a>>>(data: I) -> Result<Self> {
         let data = data.into();
         let header = Header::try_read(&data, ())?.0;
@@ -604,6 +604,11 @@ impl<'a> BymlIter<'a> {
         self.root_node()
             .map(|n| super::is_container_type(n.node_type))
             .unwrap_or(false)
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.root_node().map(|n| n.len).unwrap_or(0)
     }
 
     #[inline]
@@ -906,31 +911,25 @@ impl<'a> BymlIter<'a> {
             }
             BymlNode::StringTable { .. } => unimplemented!(),
             BymlNode::I64 { .. } => {
-                Ok(super::Byml::I64(
-                    self.get_i64_data(node)
-                        .ok_or(byte::Error::BadInput {
-                            err: "Invalid i64 node",
-                        })?
-                        .into(),
-                ))
+                Ok(super::Byml::I64(self.get_i64_data(node).ok_or(
+                    byte::Error::BadInput {
+                        err: "Invalid i64 node",
+                    },
+                )?))
             }
             BymlNode::U64 { .. } => {
-                Ok(super::Byml::U64(
-                    self.get_u64_data(node)
-                        .ok_or(byte::Error::BadInput {
-                            err: "Invalid u64 node",
-                        })?
-                        .into(),
-                ))
+                Ok(super::Byml::U64(self.get_u64_data(node).ok_or(
+                    byte::Error::BadInput {
+                        err: "Invalid u64 node",
+                    },
+                )?))
             }
             BymlNode::Double { .. } => {
-                Ok(super::Byml::Double(
-                    self.get_double_data(node)
-                        .ok_or(byte::Error::BadInput {
-                            err: "Invalid double node",
-                        })?
-                        .into(),
-                ))
+                Ok(super::Byml::Double(self.get_double_data(node).ok_or(
+                    byte::Error::BadInput {
+                        err: "Invalid double node",
+                    },
+                )?))
             }
             BymlNode::Null => Ok(super::Byml::Null),
             BymlNode::Bool(v) => Ok(super::Byml::Bool(v)),
@@ -942,10 +941,10 @@ impl<'a> BymlIter<'a> {
 }
 
 #[cfg(feature = "alloc")]
-impl TryFrom<&BymlIter<'_>> for super::Byml {
+impl TryFrom<&BymlReader<'_>> for super::Byml {
     type Error = crate::Error;
 
-    fn try_from(value: &BymlIter) -> core::result::Result<Self, Self::Error> {
+    fn try_from(value: &BymlReader) -> core::result::Result<Self, Self::Error> {
         value
             .root_node()
             .map(|header| {
@@ -961,10 +960,10 @@ impl TryFrom<&BymlIter<'_>> for super::Byml {
 }
 
 #[cfg(feature = "alloc")]
-impl TryFrom<BymlIter<'_>> for super::Byml {
+impl TryFrom<BymlReader<'_>> for super::Byml {
     type Error = crate::Error;
 
-    fn try_from(value: BymlIter<'_>) -> core::result::Result<Self, Self::Error> {
+    fn try_from(value: BymlReader<'_>) -> core::result::Result<Self, Self::Error> {
         (&value).try_into()
     }
 }
@@ -975,7 +974,7 @@ mod tests {
     fn parse() {
         let data =
             include_bytes!("../../test/byml/Mrg_01e57204_MrgD100_B4-B3-B2-1A90E17A.bcett.byml");
-        let parser = super::BymlIter::new(data.as_slice()).unwrap();
+        let parser = super::BymlReader::new(data.as_slice()).unwrap();
         assert_eq!(parser.header().unwrap().root_node_offset, 264);
         assert_eq!(parser.root_node().unwrap(), super::BymlContainerHeader {
             len: 1,
@@ -986,7 +985,7 @@ mod tests {
     #[test]
     fn iter() {
         let data = include_bytes!("../../test/byml/USen.byml");
-        let parser = super::BymlIter::new(data.as_slice()).unwrap();
+        let parser = super::BymlReader::new(data.as_slice()).unwrap();
         assert!(parser.is_hash_map());
         for (_, v) in parser.iter_as_hash_map().unwrap() {
             assert!(matches!(v, super::BymlNode::Map { .. }));

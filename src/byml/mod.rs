@@ -1,46 +1,42 @@
 //! Port of the `oead::byml` module.
 //!
+//! Most of the standard functionality of this module, except the zero
+//! allocation parser, requires the `alloc` feature.
+//!
 //! A `Byml` type will usually be constructed from binary data or a YAML string,
 //! e.g.
-//! ```
+#![cfg_attr(not(feature = "alloc"), doc = "```ignore")]
+#![cfg_attr(feature = "alloc", doc = "```")]
 //! # use roead::byml::Byml;
-//! # use std::{fs::read, error::Error};
-//! # fn docttest() -> Result<(), Box<dyn Error>> {
-//! let buf: Vec<u8> = std::fs::read("test/byml/A-1_Dynamic.byml")?;
-//! let map_unit = Byml::from_binary(&buf)?;
-//! let text: String = std::fs::read_to_string("test/byml/A-1_Dynamic.yml")?;
+//! let buf: Vec<u8> = std::fs::read("test/byml/A-1_Dynamic.byml").unwrap();
+//! let map_unit = Byml::from_binary(&buf).unwrap();
+//! let text: String = std::fs::read_to_string("test/byml/A-1_Dynamic.yml").unwrap();
 //! //let map_unit2 = Byml::from_text(&text)?;
 //! //assert_eq!(map_unit, map_unit2);
-//! # Ok(())
-//! # }
 //! ```
 //! You can also easily serialize to binary or a YAML string.
-//! ```no_run
+#![cfg_attr(not(feature = "alloc"), doc = "```ignore")]
+#![cfg_attr(feature = "alloc", doc = "```no_run")]
 //! # use roead::{byml::Byml, Endian};
-//! # fn docttest() -> Result<(), Box<dyn std::error::Error>> {
-//! let buf: Vec<u8> = std::fs::read("test/aamp/A-1_Dynamic.byml")?;
-//! let map_unit = Byml::from_binary(&buf)?;
+//! let buf: Vec<u8> = std::fs::read("test/aamp/A-1_Dynamic.byml").unwrap();
+//! let map_unit = Byml::from_binary(&buf).unwrap();
 //! //std::fs::write("A-1_Static.yml", &map_unit.to_text())?;
 //! std::fs::write(
 //!     "test/aamp/A-1_Dynamic.byml",
 //!     &map_unit.to_binary(Endian::Big),
-//! )?;
-//! # Ok(())
-//! # }
+//! ).unwrap();
 //! ```
-//!
+//! 
 //! A number of convenience getters are available which return a result for a
 //! variant value:
-//! ```
+#![cfg_attr(not(feature = "alloc"), doc = "```ignore")]
+#![cfg_attr(feature = "alloc", doc = "```no_run")]
 //! # use roead::byml::Byml;
-//! # fn docttest() -> Result<(), Box<dyn std::error::Error>> {
 //! # let some_data = b"BYML";
-//! let doc = Byml::from_binary(some_data)?;
+//! let doc = Byml::from_binary(some_data).unwrap();
 //! let map = doc.as_map().unwrap();
-//! # Ok(())
-//! # }
 //! ```
-//!
+//! 
 //! Most of the node types are fairly self-explanatory. Arrays are implemented
 //! as `Vec<Byml>`, and maps as `FxHashMap<String, Byml>`. The new v7 hash maps
 //! are `FxHashMap<u32, Byml>` and `FxHashMap<u32, (Byml, u32)>`.
@@ -48,25 +44,49 @@
 //! For convenience, a `Byml` *known* to be an array or map can be
 //! indexed. **Panics if the node has the wrong type, the index has the wrong
 //! type, or the index is not found**.
-//! ```
+#![cfg_attr(not(feature = "alloc"), doc = "```ignore")]
+#![cfg_attr(feature = "alloc", doc = "```")]
 //! # use roead::byml::Byml;
-//! # fn docttest() -> Result<(), Box<dyn std::error::Error>> {
-//! let buf: Vec<u8> = std::fs::read("test/byml/ActorInfo.product.byml")?;
-//! let actor_info = Byml::from_binary(&buf)?;
+//! let buf: Vec<u8> = std::fs::read("test/byml/ActorInfo.product.byml").unwrap();
+//! let actor_info = Byml::from_binary(&buf).unwrap();
 //! assert_eq!(actor_info["Actors"].as_array().unwrap().len(), 7934);
 //! assert_eq!(actor_info["Hashes"][0].as_i32().unwrap(), 31119);
+//! ```
+//! 
+//! ## Zero Allocation Reader
+//!
+//! The [`reader`] submodule also includes a `no_std`-compatible, zero
+//! allocation BYML reader. It is loosely based upon the BYML utilities in the
+//! BOTW decompilation project [here](https://github.com/zeldaret/botw/tree/master/src/KingSystem/Utils/Byaml).
+//! The API is less fun than the standard `[Byml]` type but of course
+//! potentially much more flexible for memory and performance. Note this is
+//! also still much less efficient than the decomp project's implementation on
+//! account of endianness, since we cannot here assume that the files being
+//! parsed match the native system endianness.
+//! ```
+//! # fn main() -> roead::Result<()> {
+//! use roead::byml::reader::BymlReader;
+//! let buf = include_bytes!("../../test/byml/Mrg_01e57204_MrgD100_B4-B3-B2-1A90E17A.bcett.byml");
+//! let reader = BymlReader::new(buf.as_slice())?;
+//! assert!(reader.is_map());
+//! assert_eq!(reader.len(), 1);
+//! let actors = reader.get("Actors").unwrap();
+//! for actor in reader.iter_array_data(actors).unwrap() {
+//!     let gyaml = reader.get_from(actor, "Gyaml").unwrap();
+//!     println!("{}", reader.get_string_data(gyaml).unwrap());
+//! }
 //! # Ok(())
 //! # }
 //! ```
 #[cfg(feature = "alloc")]
 mod alloc;
-mod parser;
+pub mod reader;
 #[cfg(feature = "yaml")]
 mod text;
 #[cfg(feature = "alloc")]
 mod writer;
 #[cfg(not(feature = "alloc"))]
-pub use parser::BymlIter;
+pub use reader::BymlReader;
 use smartstring::alias::String;
 
 #[cfg(feature = "alloc")]
