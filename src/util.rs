@@ -1,3 +1,7 @@
+#[cfg(feature = "alloc")]
+pub type FxHashMap<K, V> =
+    hashbrown::HashMap<K, V, core::hash::BuildHasherDefault<rustc_hash::FxHasher>>;
+
 #[inline(always)]
 #[allow(dead_code)]
 pub(crate) fn align(value: u32, size: u32) -> u32 {

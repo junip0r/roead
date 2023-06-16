@@ -8,10 +8,12 @@ use std::{
 };
 
 use binrw::prelude::*;
-use rustc_hash::FxHashMap;
 
 use super::*;
-use crate::{util::align, Result};
+use crate::{
+    util::{align, FxHashMap},
+    Result,
+};
 
 impl ParameterIO {
     /// Serialize the parameter IO to binary using the given writer.

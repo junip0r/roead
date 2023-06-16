@@ -1,9 +1,10 @@
-// use alloc::{borrow::Cow, string::ToString};
 use core::{
     hash::{Hash, Hasher},
     mem::size_of,
 };
 
+#[cfg(feature = "alloc")]
+use ::alloc::string::ToString;
 use byte::{BytesExt, TryRead};
 #[cfg(feature = "alloc")]
 use join_str::jstr;

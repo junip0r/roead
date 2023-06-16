@@ -195,7 +195,7 @@ mod ffi {
         #[rust_name = "DecompressIntoBuffer"]
         fn Decompress(data: &[u8], dest: &mut [u8]) -> Result<()>;
         unsafe fn DecompressUnsafe(data: &[u8], dest: &mut [u8]) -> Result<()>;
-        fn Compress(data: &[u8], data_alignment: u32, level: i32) -> Vec<u8>;
+        fn Compress(data: &[u8], data_alignment: u32, level: i32) -> ::alloc::vec::Vec<u8>;
     }
 }
 

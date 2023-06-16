@@ -3,11 +3,10 @@ use binrw::{
     io::{Cursor, Seek, SeekFrom, Write},
     prelude::*,
 };
-use rustc_hash::FxHashMap;
 
 use super::*;
 use crate::{
-    util::{align, u24},
+    util::{align, u24, FxHashMap},
     Endian, Error, Result,
 };
 

@@ -1,0 +1,2 @@
+# [unstable.aarch64-nintendo-switch-freestanding]
+# build-std = ["core", "alloc", "compiler_builtins"]

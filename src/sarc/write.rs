@@ -11,11 +11,10 @@ use core::{borrow::Borrow, hash::Hash, mem::size_of};
 use byte::BytesExt;
 use indexmap::IndexMap;
 use num_integer::Integer;
-use rustc_hash::FxHashMap;
 use serde::Deserialize;
 
 use super::*;
-use crate::{Endian, Result};
+use crate::{util::FxHashMap, Endian, Result};
 const HASH_MULTIPLIER: u32 = 0x65;
 
 #[derive(Deserialize)]
@@ -48,7 +47,7 @@ pub struct SarcWriter {
     alignment_map: FxHashMap<String, usize>,
     bin_endian: byte::ctx::Endian,
     /// Files to be written.
-    pub files: IndexMap<String, Vec<u8>>,
+    pub files: IndexMap<String, Vec<u8>, core::hash::BuildHasherDefault<rustc_hash::FxHasher>>,
 }
 
 impl core::fmt::Debug for SarcWriter {
@@ -85,7 +84,7 @@ impl SarcWriter {
             legacy: false,
             hash_multiplier: HASH_MULTIPLIER,
             alignment_map: FxHashMap::default(),
-            files: IndexMap::new(),
+            files: Default::default(),
             bin_endian: match endian {
                 Endian::Big => byte::ctx::Endian::Big,
                 Endian::Little => byte::ctx::Endian::Little,

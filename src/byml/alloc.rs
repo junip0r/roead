@@ -6,9 +6,9 @@ use super::*;
 use crate::{Error, Result};
 
 /// A BYML hash node.
-pub type Map = rustc_hash::FxHashMap<String, Byml>;
-pub type HashMap = rustc_hash::FxHashMap<u32, Byml>;
-pub type ValueHashMap = rustc_hash::FxHashMap<u32, (Byml, u32)>;
+pub type Map = crate::util::FxHashMap<String, Byml>;
+pub type HashMap = crate::util::FxHashMap<u32, Byml>;
+pub type ValueHashMap = crate::util::FxHashMap<u32, (Byml, u32)>;
 
 /// Represents a Nintendo binary YAML (BYML) document or node.
 #[cfg_attr(feature = "with-serde", derive(serde::Serialize, serde::Deserialize))]

@@ -6,9 +6,9 @@ use std::{
 
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
-use rustc_hash::FxHashMap;
 
 use super::*;
+use crate::util::FxHashMap;
 
 static NAMES: &str = include_str!("../../data/botw_hashed_names.txt");
 static NUMBERED_NAMES: &str = include_str!("../../data/botw_numbered_names.txt");
