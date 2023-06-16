@@ -58,7 +58,7 @@
 //! The [`reader`] submodule also includes a `no_std`-compatible, zero
 //! allocation BYML reader. It is loosely based upon the BYML utilities in the
 //! BOTW decompilation project [here](https://github.com/zeldaret/botw/tree/master/src/KingSystem/Utils/Byaml).
-//! The API is less fun than the standard `[Byml]` type but of course
+//! The API is less fun than the standard [`Byml`] type but of course
 //! potentially much more flexible for memory and performance. Note this is
 //! also still much less efficient than the decomp project's implementation on
 //! account of endianness, since we cannot here assume that the files being

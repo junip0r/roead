@@ -99,6 +99,8 @@ type Buffer<'a> = alloc::borrow::Cow<'a, [u8]>;
 #[cfg(not(feature = "alloc"))]
 type Buffer<'a> = &'a [u8];
 
+/// A `no_std` compatible, zero allocation reader for BYML documents. Can be
+/// constructed from a byte slice or (with the `alloc` feature) a Cow.
 #[derive(Debug, PartialEq)]
 pub struct BymlReader<'a> {
     data: Buffer<'a>,
@@ -422,6 +424,11 @@ impl<'a> Iterator for BymlHashMapIterator<'a> {
     }
 }
 
+/// Represents a node in a BYML document. For inline nodes (bool, i32, f32, u32)
+/// this contains the actual node value. For non-inline nodes, it contains the
+/// offset in the file to the value, or an index into the string table for
+/// strings. To get the value of a non-inline node, pass a [`BymlNode`] to the
+/// relevant getter on the parent [`BymlReader`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BymlNode {
     HashMap { offset: usize },
@@ -443,7 +450,7 @@ pub enum BymlNode {
 }
 
 impl BymlNode {
-    pub fn new(value: u32, node_type: NodeType) -> Self {
+    fn new(value: u32, node_type: NodeType) -> Self {
         match node_type {
             NodeType::String => Self::String { index: value },
             NodeType::HashMap => {
@@ -528,6 +535,8 @@ impl TryRead<'_, ctx::Endian> for BymlMapPair {
 }
 
 impl<'a> BymlReader<'a> {
+    /// Construct a new reader from BYML data. Note that this does not
+    /// automatically decompress, even with the `yaz0` feature.
     pub fn new<I: Into<Buffer<'a>>>(data: I) -> Result<Self> {
         let data = data.into();
         let header = Header::try_read(&data, ())?.0;
@@ -566,49 +575,65 @@ impl<'a> BymlReader<'a> {
     }
 
     #[inline]
-    fn root_node(&self) -> Option<BymlContainerHeader> {
+    fn root_container(&self) -> Option<BymlContainerHeader> {
         self.root_node_idx
             .and_then(|idx| self.parse_container(idx).ok())
     }
 
+    /// Get a [`BymlNode`] representing the root node, if it exists.
+    #[inline]
+    pub fn root_node(&self) -> Option<BymlNode> {
+        self.root_container().map(|header| {
+            BymlNode::new(
+                unsafe { self.root_node_idx.unwrap_unchecked() } as u32,
+                header.node_type,
+            )
+        })
+    }
+
     #[inline]
     pub fn is_map(&self) -> bool {
-        self.root_node()
+        self.root_container()
             .map(|n| n.node_type == NodeType::Map)
             .unwrap_or(false)
     }
 
     #[inline]
     pub fn is_array(&self) -> bool {
-        self.root_node()
+        self.root_container()
             .map(|n| n.node_type == NodeType::Array)
             .unwrap_or(false)
     }
 
     #[inline]
     pub fn is_hash_map(&self) -> bool {
-        self.root_node()
+        self.root_container()
             .map(|n| n.node_type == NodeType::HashMap)
             .unwrap_or(false)
     }
 
     #[inline]
     pub fn is_value_hash_map(&self) -> bool {
-        self.root_node()
+        self.root_container()
             .map(|n| n.node_type == NodeType::ValueHashMap)
             .unwrap_or(false)
     }
 
     #[inline]
     pub fn is_container(&self) -> bool {
-        self.root_node()
+        self.root_container()
             .map(|n| super::is_container_type(n.node_type))
             .unwrap_or(false)
     }
 
     #[inline]
     pub fn len(&self) -> usize {
-        self.root_node().map(|n| n.len).unwrap_or(0)
+        self.root_container().map(|n| n.len).unwrap_or(0)
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.root_container().map(|n| n.len > 0).unwrap_or(true)
     }
 
     #[inline]
@@ -617,6 +642,10 @@ impl<'a> BymlReader<'a> {
         keys.pos(key)
     }
 
+    /// Get a child of the root node by the appropriate index (`usize` for
+    /// arrays, `u32` for hash maps, or `&str` for ordinary (string) maps).
+    ///
+    /// Returns `None` if the key type does not match the container type.
     #[inline]
     pub fn get<'i, I: Into<super::BymlIndex<'i>>>(&self, key: I) -> Option<BymlNode> {
         match key.into() {
@@ -634,6 +663,11 @@ impl<'a> BymlReader<'a> {
         }
     }
 
+    /// Get a child of the given container node by the appropriate index
+    /// (`usize` for arrays, `u32` for hash maps, or `&str` for ordinary
+    /// (string) maps).
+    ///
+    /// Returns `None` if the key type does not match the container type.
     #[inline]
     pub fn get_from<'i, I: Into<super::BymlIndex<'i>>>(
         &self,
@@ -661,7 +695,7 @@ impl<'a> BymlReader<'a> {
     #[inline]
     pub fn iter_as_array(&self) -> Option<BymlArrayIterator<'_>> {
         if self.is_array() {
-            let node = unsafe { self.root_node().unwrap_unchecked() };
+            let node = unsafe { self.root_container().unwrap_unchecked() };
             Some(BymlArrayIterator::new(
                 node,
                 &self.data[unsafe { self.root_node_idx.unwrap_unchecked() }..],
@@ -675,7 +709,7 @@ impl<'a> BymlReader<'a> {
     #[inline]
     pub fn iter_as_map(&self) -> Option<BymlMapIterator<'_>> {
         if self.is_map() {
-            let node = unsafe { self.root_node().unwrap_unchecked() };
+            let node = unsafe { self.root_container().unwrap_unchecked() };
             Some(BymlMapIterator::new(
                 node,
                 &self.data[unsafe { self.root_node_idx.unwrap_unchecked() }..],
@@ -690,7 +724,7 @@ impl<'a> BymlReader<'a> {
     #[inline]
     pub fn iter_as_hash_map(&self) -> Option<BymlHashMapIterator<'_>> {
         if self.is_hash_map() {
-            let node = unsafe { self.root_node().unwrap_unchecked() };
+            let node = unsafe { self.root_container().unwrap_unchecked() };
             Some(BymlHashMapIterator::new(
                 node,
                 &self.data[unsafe { self.root_node_idx.unwrap_unchecked() }..],
@@ -705,7 +739,7 @@ impl<'a> BymlReader<'a> {
     #[inline]
     pub fn iter_as_value_hash_map(&self) -> Option<BymlHashMapIterator<'_>> {
         if self.is_value_hash_map() {
-            let node = unsafe { self.root_node().unwrap_unchecked() };
+            let node = unsafe { self.root_container().unwrap_unchecked() };
             Some(BymlHashMapIterator::new(
                 node,
                 &self.data[unsafe { self.root_node_idx.unwrap_unchecked() }..],
@@ -947,13 +981,7 @@ impl TryFrom<&BymlReader<'_>> for super::Byml {
     fn try_from(value: &BymlReader) -> core::result::Result<Self, Self::Error> {
         value
             .root_node()
-            .map(|header| {
-                let node = BymlNode::new(
-                    unsafe { value.root_node_idx.unwrap_unchecked() } as u32,
-                    header.node_type,
-                );
-                value.node_to_byml(node)
-            })
+            .map(|node| value.node_to_byml(node))
             .transpose()
             .map(|by| by.unwrap_or(super::Byml::Null))
     }
@@ -976,10 +1004,13 @@ mod tests {
             include_bytes!("../../test/byml/Mrg_01e57204_MrgD100_B4-B3-B2-1A90E17A.bcett.byml");
         let parser = super::BymlReader::new(data.as_slice()).unwrap();
         assert_eq!(parser.header().unwrap().root_node_offset, 264);
-        assert_eq!(parser.root_node().unwrap(), super::BymlContainerHeader {
-            len: 1,
-            node_type: crate::byml::NodeType::Map,
-        });
+        assert_eq!(
+            parser.root_container().unwrap(),
+            super::BymlContainerHeader {
+                len: 1,
+                node_type: crate::byml::NodeType::Map,
+            }
+        );
     }
 
     #[test]
