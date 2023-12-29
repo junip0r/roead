@@ -226,11 +226,11 @@ impl<'a, 'b> Emitter<'a, 'b> {
                     }
                     Byml::Bool(b) => dest_node.set_val(if *b { "true" } else { "false" })?,
                     Byml::Float(f) => {
-                        dest_node.set_val((*f).to_string())?;
+                        dest_node.set_val(&(*f).to_string())?;
                         dest_node.set_val_tag("!f32")?;
-                    },
+                    }
                     Byml::Double(d) => {
-                        dest_node.set_val((*d).to_string())?;
+                        dest_node.set_val(&(*d).to_string())?;
                         dest_node.set_val_tag("!f64")?;
                     }
                     Byml::I32(i) => dest_node.set_val(&lexical::to_string(*i))?,
