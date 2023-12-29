@@ -38,6 +38,5 @@ docs/doxygen/*
 # Added by cargo
 
 /target
-/Cargo.lock
 
 tmp.txt
